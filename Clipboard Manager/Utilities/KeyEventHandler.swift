@@ -113,14 +113,16 @@ class KeyCaptureView: NSView {
         if flags.contains(.option) { mods |= UInt32(optionKey) }
         if flags.contains(.control) { mods |= UInt32(controlKey) }
 
-        // Tab toggle shortcuts (check before Cmd passthrough)
-        if let combo = settings.tabBackwardShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
-            onToggleTabBackward?()
-            return true
-        }
-        if let combo = settings.tabToggleShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
-            onToggleTab?()
-            return true
+        // Tab toggle shortcuts — skip when in a text field so Tab works for typing/indenting
+        if !inTextField {
+            if let combo = settings.tabBackwardShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+                onToggleTabBackward?()
+                return true
+            }
+            if let combo = settings.tabToggleShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+                onToggleTab?()
+                return true
+            }
         }
 
         // Cmd+F to focus search

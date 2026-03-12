@@ -1,6 +1,19 @@
 import SwiftUI
 import Carbon
 
+private func snippetDebugLog(_ message: String) {
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let line = "\(ts): \(message)\n"
+    let path = "/tmp/clipboard-manager-debug.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    }
+}
+
 struct SnippetEditorView: View {
     @Environment(\.modelContext) private var modelContext
     var snippet: SavedSnippet?
@@ -21,7 +34,7 @@ struct SnippetEditorView: View {
     @State private var editorCoordinator: RichTextEditorCoordinator?
 
     var body: some View {
-        ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 // Header
                 HStack {
@@ -34,7 +47,7 @@ struct SnippetEditorView: View {
                     Button("Save") { save() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                        .disabled(isFolder ? title.isEmpty : content.isEmpty)
+                        .disabled(isFolder && title.isEmpty)
                 }
 
                 // Title + Icon row
@@ -66,18 +79,21 @@ struct SnippetEditorView: View {
                 if !isFolder {
                     // Formatting toolbar
                     FormatToolbar(coordinator: editorCoordinator)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
 
-                    // Rich text content
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Content")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        RichTextEditor(attributedText: $attributedContent, onCoordinator: { editorCoordinator = $0 })
-                            .frame(minHeight: 100, maxHeight: 200)
-                            .background(Color.primary.opacity(0.05))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
+            if !isFolder {
+                // Rich text content — takes remaining space
+                RichTextEditor(attributedText: $attributedContent, onCoordinator: { editorCoordinator = $0 })
+                    .background(Color.primary.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, 16)
 
+                // Bottom controls
+                VStack(alignment: .leading, spacing: 8) {
                     // Token buttons
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Insert Token")
@@ -115,11 +131,33 @@ struct SnippetEditorView: View {
                             .pickerStyle(.menu)
                         }
                     }
-                }
 
-                // Global Shortcut (for both snippets and folders)
+                    // Global Shortcut
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Global Shortcut (optional)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            OptionalShortcutRecorder(keyCombo: $keyCombo)
+                            if keyCombo != nil {
+                                Button {
+                                    keyCombo = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            } else {
+                // Folder: just shortcut
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(isFolder ? "Global Shortcut (shows folder menu)" : "Global Shortcut (optional)")
+                    Text("Global Shortcut (shows folder menu)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                     HStack {
@@ -136,11 +174,14 @@ struct SnippetEditorView: View {
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                Spacer()
             }
-            .padding(16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            snippetDebugLog("onAppear: snippet=\(snippet == nil ? "nil" : snippet!.id.uuidString)")
             if let s = snippet {
                 title = s.title
                 content = s.content
@@ -148,14 +189,20 @@ struct SnippetEditorView: View {
                 isFolder = s.isFolder
                 selectedFolderID = s.folderID
                 iconName = s.iconName
+                snippetDebugLog("onAppear EDIT: content=\"\(s.content.prefix(40))\" rtf=\(s.rtfData?.count ?? 0)b")
                 if let rtf = s.rtfData, let attr = NSAttributedString(rtf: rtf, documentAttributes: nil) {
+                    snippetDebugLog("  loaded RTF attr.length=\(attr.length)")
                     attributedContent = NSMutableAttributedString(attributedString: attr)
                 } else if !s.content.isEmpty {
+                    snippetDebugLog("  loaded plain text")
                     attributedContent = NSMutableAttributedString(string: s.content, attributes: [
                         .font: NSFont.systemFont(ofSize: 13)
                     ])
+                } else {
+                    snippetDebugLog("  WARNING: content and rtfData both empty!")
                 }
             } else {
+                snippetDebugLog("onAppear NEW snippet")
                 selectedFolderID = folderID
                 isFolder = false
                 attributedContent = NSMutableAttributedString(string: "", attributes: [
@@ -187,9 +234,22 @@ struct SnippetEditorView: View {
     }
 
     private func save() {
-        let plainText = attributedContent.string
-        let rtf = try? attributedContent.data(from: NSRange(location: 0, length: attributedContent.length),
-                                               documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        snippetDebugLog("SAVE: coordinator=\(editorCoordinator != nil), tv=\(editorCoordinator?.textView != nil), snapshot=\(editorCoordinator?.latestAttributedString?.length ?? -1)")
+        let liveContent: NSAttributedString
+        if let snapshot = editorCoordinator?.latestAttributedString {
+            liveContent = snapshot
+            snippetDebugLog("  source=snapshot len=\(snapshot.length)")
+        } else if let tv = editorCoordinator?.textView {
+            liveContent = tv.attributedString()
+            snippetDebugLog("  source=textView len=\(liveContent.length)")
+        } else {
+            liveContent = attributedContent
+            snippetDebugLog("  source=@State len=\(attributedContent.length)")
+        }
+        let plainText = liveContent.string
+        let rtf = try? liveContent.data(from: NSRange(location: 0, length: liveContent.length),
+                                         documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        snippetDebugLog("  plainText=\"\(plainText.prefix(60))\" rtf=\(rtf?.count ?? 0)b")
 
         if let s = snippet {
             s.title = title
@@ -200,13 +260,17 @@ struct SnippetEditorView: View {
                 s.rtfData = rtf
                 s.folderID = selectedFolderID
             }
+            snippetDebugLog("  UPDATED id=\(s.id) content=\"\(s.content.prefix(40))\" rtf=\(s.rtfData?.count ?? 0)b")
         } else {
             let s = SavedSnippet(title: title, content: plainText, order: nextOrder, folderID: selectedFolderID)
             s.keyCombo = keyCombo
             s.iconName = iconName
             s.rtfData = rtf
             modelContext.insert(s)
+            snippetDebugLog("  CREATED id=\(s.id) content=\"\(s.content.prefix(40))\"")
         }
+        try? modelContext.save()
+        snippetDebugLog("  modelContext.save() called")
         onSave()
     }
 }
@@ -309,12 +373,17 @@ struct RichTextEditor: NSViewRepresentable {
         textView.usesRuler = false
         textView.font = NSFont.systemFont(ofSize: 13)
         textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
 
         if attributedText.length > 0 {
             textView.textStorage?.setAttributedString(attributedText)
+            context.coordinator.latestAttributedString = NSAttributedString(attributedString: attributedText)
         }
+
+        context.coordinator.installClickOutsideMonitor()
 
         DispatchQueue.main.async {
             onCoordinator?(context.coordinator)
@@ -324,25 +393,174 @@ struct RichTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        // Don't update while user is editing
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        let currentLen = textView.attributedString().length
+        let newLen = attributedText.length
+        snippetDebugLog("updateNSView: currentLen=\(currentLen) newLen=\(newLen)")
+        if newLen > 0 && currentLen == 0 {
+            snippetDebugLog("  pushing attributedText to NSTextView")
+            textView.textStorage?.setAttributedString(attributedText)
+            context.coordinator.latestAttributedString = NSAttributedString(attributedString: attributedText)
+        }
     }
+}
+
+// Bullet/list prefix pattern: optional tabs + (• or digits.) + space/tab
+private let bulletPrefixPattern = try! NSRegularExpression(pattern: #"^(\t*)(•|\d+\.)\s?"#)
+
+/// Returns the bullet prefix of a line (e.g. "\t• ", "1.\t", etc.) or nil
+private func bulletPrefix(of line: String) -> String? {
+    let range = NSRange(line.startIndex..., in: line)
+    guard let match = bulletPrefixPattern.firstMatch(in: line, range: range),
+          let matchRange = Range(match.range, in: line) else { return nil }
+    return String(line[matchRange])
+}
+
+/// Returns (lineRange, lineContent) for the line containing the given character index
+private func currentLine(in string: String, at location: Int) -> (Range<String.Index>, String)? {
+    guard location <= string.count else { return nil }
+    let idx = string.index(string.startIndex, offsetBy: min(location, string.count))
+    let lineRange = string.lineRange(for: idx..<idx)
+    return (lineRange, String(string[lineRange]))
 }
 
 class RichTextEditorCoordinator: NSObject, NSTextViewDelegate {
     @Binding var attributedText: NSMutableAttributedString
-    weak var textView: NSTextView?
+    var textView: NSTextView?
+    private var clickMonitor: Any?
+    /// Always-current snapshot of the text view content, updated on every change
+    var latestAttributedString: NSAttributedString?
 
     init(attributedText: Binding<NSMutableAttributedString>) {
         _attributedText = attributedText
+        super.init()
+    }
+
+    /// Install a local event monitor that resigns first responder when clicking outside the text view
+    /// Uses mouseUp instead of mouseDown so buttons still receive their click
+    func installClickOutsideMonitor() {
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            guard let tv = self?.textView, let window = tv.window else { return event }
+            let loc = tv.convert(event.locationInWindow, from: nil)
+            if !tv.bounds.contains(loc) {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
+    }
+
+    func removeClickOutsideMonitor() {
+        if let m = clickMonitor {
+            NSEvent.removeMonitor(m)
+            clickMonitor = nil
+        }
+    }
+
+    deinit {
+        removeClickOutsideMonitor()
     }
 
     func textDidChange(_ notification: Notification) {
         guard let tv = textView else { return }
-        attributedText = NSMutableAttributedString(attributedString: tv.attributedString())
+        let snapshot = NSMutableAttributedString(attributedString: tv.attributedString())
+        latestAttributedString = snapshot
+        attributedText = snapshot
     }
 
     func insertText(_ text: String) {
         textView?.insertText(text, replacementRange: textView?.selectedRange() ?? NSRange(location: 0, length: 0))
+    }
+
+    // MARK: - Command handling for bullets
+
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        let str = textView.string
+        let loc = textView.selectedRange().location
+
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            return handleNewline(textView: textView, string: str, location: loc)
+        }
+
+        if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+            return handleDeleteBackward(textView: textView, string: str, location: loc)
+        }
+
+        if commandSelector == #selector(NSResponder.insertTab(_:)) {
+            return handleTab(textView: textView, string: str, location: loc)
+        }
+
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+            return handleBacktab(textView: textView, string: str, location: loc)
+        }
+
+        return false
+    }
+
+    private func handleNewline(textView: NSTextView, string: String, location: Int) -> Bool {
+        guard let (lineRange, line) = currentLine(in: string, at: location) else { return false }
+        guard let prefix = bulletPrefix(of: line) else { return false }
+
+        // If line is ONLY the bullet prefix (empty bullet), remove it
+        let trimmedLine = line.replacingOccurrences(of: "\n", with: "")
+        if trimmedLine == prefix.replacingOccurrences(of: "\n", with: "").trimmingCharacters(in: .whitespaces) ||
+           trimmedLine.trimmingCharacters(in: .whitespaces) == prefix.trimmingCharacters(in: .whitespacesAndNewlines) {
+            // Remove the bullet prefix from this line
+            let nsRange = NSRange(lineRange, in: string)
+            textView.insertText("\n", replacementRange: NSRange(location: nsRange.location, length: nsRange.length - (line.hasSuffix("\n") ? 1 : 0)))
+            return true
+        }
+
+        // Auto-continue: insert newline + same prefix
+        // For numbered lists, increment the number
+        var newPrefix = prefix
+        if let numMatch = try? NSRegularExpression(pattern: #"^(\t*)(\d+)\."#).firstMatch(in: prefix, range: NSRange(prefix.startIndex..., in: prefix)),
+           let numRange = Range(numMatch.range(at: 2), in: prefix),
+           let num = Int(prefix[numRange]) {
+            let tabs = prefix[prefix.startIndex..<numRange.lowerBound]
+            newPrefix = "\(tabs)\(num + 1). "
+        }
+
+        textView.insertText("\n\(newPrefix)", replacementRange: textView.selectedRange())
+        return true
+    }
+
+    private func handleDeleteBackward(textView: NSTextView, string: String, location: Int) -> Bool {
+        guard location > 0 else { return false }
+        guard let (lineRange, line) = currentLine(in: string, at: location) else { return false }
+        guard let prefix = bulletPrefix(of: line) else { return false }
+
+        // Calculate cursor position within the line
+        let lineStart = string.distance(from: string.startIndex, to: lineRange.lowerBound)
+        let cursorInLine = location - lineStart
+
+        // If cursor is within or right after the bullet prefix, don't delete into it
+        if cursorInLine <= prefix.count {
+            return true // Swallow the backspace
+        }
+
+        return false // Let normal backspace happen
+    }
+
+    private func handleTab(textView: NSTextView, string: String, location: Int) -> Bool {
+        guard let (lineRange, line) = currentLine(in: string, at: location) else { return false }
+        guard bulletPrefix(of: line) != nil else { return false }
+
+        // Add a tab at the start of the line to indent the bullet
+        let lineStart = NSRange(lineRange, in: string).location
+        textView.insertText("\t", replacementRange: NSRange(location: lineStart, length: 0))
+        return true
+    }
+
+    private func handleBacktab(textView: NSTextView, string: String, location: Int) -> Bool {
+        guard let (lineRange, line) = currentLine(in: string, at: location) else { return false }
+        guard bulletPrefix(of: line) != nil else { return false }
+
+        // Remove one leading tab if present
+        if line.hasPrefix("\t") {
+            let lineStart = NSRange(lineRange, in: string).location
+            textView.insertText("", replacementRange: NSRange(location: lineStart, length: 1))
+        }
+        return true
     }
 
     // MARK: - Formatting Actions
@@ -351,7 +569,6 @@ class RichTextEditorCoordinator: NSObject, NSTextViewDelegate {
         guard let tv = textView else { return }
         let range = tv.selectedRange()
         guard range.length > 0 else {
-            // Set typing attributes for future typing
             var attrs = tv.typingAttributes
             if let font = attrs[.font] as? NSFont {
                 attrs[.font] = toggleBoldTrait(font)
@@ -442,10 +659,46 @@ class RichTextEditorCoordinator: NSObject, NSTextViewDelegate {
         textDidChange(Notification(name: .init("")))
     }
 
-    func insertList(ordered: Bool, indent: Int = 0) {
+    func insertBullet() {
         guard let tv = textView else { return }
-        let prefix = String(repeating: "\t", count: indent) + (ordered ? "1.\t" : "•\t")
-        tv.insertText(prefix, replacementRange: tv.selectedRange())
+        let str = tv.string
+        let loc = tv.selectedRange().location
+        if let (lineRange, line) = currentLine(in: str, at: loc) {
+            if bulletPrefix(of: line) != nil {
+                // Already has bullet — remove it
+                let nsRange = NSRange(lineRange, in: str)
+                guard let prefix = bulletPrefix(of: line) else { return }
+                let rest = String(line.dropFirst(prefix.count))
+                tv.insertText(rest, replacementRange: NSRange(location: nsRange.location, length: line.count - (line.hasSuffix("\n") ? 1 : 0)))
+            } else {
+                // Add bullet at line start
+                let lineStart = NSRange(lineRange, in: str).location
+                tv.insertText("• ", replacementRange: NSRange(location: lineStart, length: 0))
+            }
+        } else {
+            tv.insertText("• ", replacementRange: tv.selectedRange())
+        }
+    }
+
+    func insertNumberedList() {
+        guard let tv = textView else { return }
+        let str = tv.string
+        let loc = tv.selectedRange().location
+        if let (lineRange, line) = currentLine(in: str, at: loc) {
+            if bulletPrefix(of: line) != nil {
+                // Already has bullet — remove it
+                let nsRange = NSRange(lineRange, in: str)
+                guard let prefix = bulletPrefix(of: line) else { return }
+                let rest = String(line.dropFirst(prefix.count))
+                tv.insertText(rest, replacementRange: NSRange(location: nsRange.location, length: line.count - (line.hasSuffix("\n") ? 1 : 0)))
+            } else {
+                // Add number at line start
+                let lineStart = NSRange(lineRange, in: str).location
+                tv.insertText("1. ", replacementRange: NSRange(location: lineStart, length: 0))
+            }
+        } else {
+            tv.insertText("1. ", replacementRange: tv.selectedRange())
+        }
     }
 
     private func toggleBoldTrait(_ font: NSFont) -> NSFont {
@@ -522,31 +775,11 @@ struct FormatToolbar: View {
 
             Divider().frame(height: 16)
 
-            // Bullet list
-            Menu {
-                Button("Bullet List") { coordinator?.insertList(ordered: false) }
-                Button("  Sub-bullet") { coordinator?.insertList(ordered: false, indent: 1) }
-                Button("    Sub-sub-bullet") { coordinator?.insertList(ordered: false, indent: 2) }
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 22)
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 28)
+            // Bullet list toggle
+            formatButton("bullet list", icon: "list.bullet") { coordinator?.insertBullet() }
 
-            // Numbered list
-            Menu {
-                Button("Numbered List") { coordinator?.insertList(ordered: true) }
-                Button("  Sub-item") { coordinator?.insertList(ordered: true, indent: 1) }
-                Button("    Sub-sub-item") { coordinator?.insertList(ordered: true, indent: 2) }
-            } label: {
-                Image(systemName: "list.number")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 22)
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 28)
+            // Numbered list toggle
+            formatButton("numbered list", icon: "list.number") { coordinator?.insertNumberedList() }
 
             Spacer()
         }

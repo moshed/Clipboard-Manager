@@ -17,6 +17,7 @@ struct SnippetListView: View {
     @State private var expandedFolderIDs: Set<UUID> = []
     @State private var draggingItemID: UUID?
     @State private var iconPickerItemID: UUID?
+    @State private var editorSessionID = UUID()
 
     private let settings = SettingsManager.shared
     var onInsert: (SavedSnippet) -> Void
@@ -102,6 +103,7 @@ struct SnippetListView: View {
                         editingFolderID = nil
                     }
                 )
+                .id(editorSessionID)
             } else {
                 // Search + add buttons
                 HStack(spacing: 8) {
@@ -145,7 +147,7 @@ struct SnippetListView: View {
                     Button {
                         editingFolderID = selectedFolderForNew
                         editingSnippet = nil
-                        showEditor = true
+                        editorSessionID = UUID(); showEditor = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 12, weight: .bold))
@@ -238,6 +240,16 @@ struct SnippetListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .snippetDeleteSelected)) { _ in
             deleteSelected()
         }
+        .onAppear {
+            // Expand all folders by default
+            expandedFolderIDs = Set(allSnippets.filter { $0.isFolder }.map(\.id))
+        }
+        .onChange(of: allSnippets.count) { _, _ in
+            // Auto-expand newly created folders
+            for item in allSnippets where item.isFolder && !expandedFolderIDs.contains(item.id) {
+                expandedFolderIDs.insert(item.id)
+            }
+        }
     }
 
     // MARK: - Row
@@ -255,18 +267,32 @@ struct SnippetListView: View {
 
         return HStack(spacing: 10) {
             if item.isFolder {
-                ZStack {
-                    Image(systemName: isExpanded ? "folder.fill" : "folder")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.secondary)
-                    if let icon = item.iconName {
-                        Image(systemName: icon)
-                            .font(.system(size: 7, weight: .bold))
+                Button {
+                    iconPickerItemID = item.id
+                } label: {
+                    ZStack {
+                        Image(systemName: "folder")
+                            .font(.system(size: 16))
                             .foregroundStyle(.secondary)
-                            .offset(y: 1)
+                        if let icon = item.iconName {
+                            Image(systemName: icon)
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .offset(y: 2)
+                        }
                     }
+                    .frame(width: 20)
                 }
-                .frame(width: 20)
+                .buttonStyle(.plain)
+                .popover(isPresented: Binding(
+                    get: { iconPickerItemID == item.id },
+                    set: { if !$0 { iconPickerItemID = nil } }
+                )) {
+                    SFSymbolPicker(selected: Binding(
+                        get: { item.iconName },
+                        set: { item.iconName = $0 }
+                    ), onDismiss: { iconPickerItemID = nil })
+                }
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.tertiary)
@@ -395,12 +421,12 @@ struct SnippetListView: View {
                 Button("Add Snippet to Folder") {
                     editingFolderID = item.id
                     editingSnippet = nil
-                    showEditor = true
+                    editorSessionID = UUID(); showEditor = true
                 }
                 Button("Edit Folder") {
                     editingSnippet = item
                     editingFolderID = nil
-                    showEditor = true
+                    editorSessionID = UUID(); showEditor = true
                 }
                 Divider()
                 Button("Delete Folder", role: .destructive) {
@@ -414,7 +440,7 @@ struct SnippetListView: View {
                 Button("Edit") {
                     editingSnippet = item
                     editingFolderID = item.folderID
-                    showEditor = true
+                    editorSessionID = UUID(); showEditor = true
                 }
                 if !folders.isEmpty {
                     let moveIDs = selectedIDs.contains(item.id) && selectedIDs.count > 1
@@ -507,7 +533,7 @@ struct SnippetListView: View {
         modelContext.insert(folder)
         editingSnippet = folder
         editingFolderID = nil
-        showEditor = true
+        editorSessionID = UUID(); showEditor = true
     }
 
     private func moveToFolder(snippetIDs: Set<UUID>, folderID: UUID?) {
@@ -667,6 +693,12 @@ struct InlineShortcutBadge: View {
                     .padding(.vertical, 4)
                     .background(Color.primary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 7))
+            } else {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.quaternary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
             }
         }
         .buttonStyle(.plain)
