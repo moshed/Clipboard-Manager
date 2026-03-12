@@ -1,0 +1,377 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10001 /* ClipboardManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
+		A10002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
+		A10003 /* ClipboardEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
+		A10004 /* ClipboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
+		A10005 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
+		A10006 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
+		A10007 /* AppIconResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
+		A10008 /* ClipboardListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
+		A10009 /* ClipboardRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
+		A10010 /* ClipboardDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
+		A10011 /* FilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
+		A10012 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
+		A10013 /* ClipboardPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
+		A10014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
+		A10015 /* KeyEventHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
+		A10016 /* SavedSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
+		A10017 /* SnippetTokenResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
+		A10018 /* SnippetEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
+		A10019 /* SnippetListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B10001 /* ClipboardManagerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardManagerApp.swift; sourceTree = "<group>"; };
+		B10002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		B10003 /* ClipboardEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardEntry.swift; sourceTree = "<group>"; };
+		B10004 /* ClipboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardMonitor.swift; sourceTree = "<group>"; };
+		B10005 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		B10006 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
+		B10007 /* AppIconResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolver.swift; sourceTree = "<group>"; };
+		B10008 /* ClipboardListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardListView.swift; sourceTree = "<group>"; };
+		B10009 /* ClipboardRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardRowView.swift; sourceTree = "<group>"; };
+		B10010 /* ClipboardDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDetailView.swift; sourceTree = "<group>"; };
+		B10011 /* FilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterBar.swift; sourceTree = "<group>"; };
+		B10012 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10013 /* ClipboardPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardPanel.swift; sourceTree = "<group>"; };
+		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10016 /* Clipboard_Manager.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Clipboard_Manager.entitlements; sourceTree = "<group>"; };
+		B10017 /* KeyEventHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyEventHandler.swift; sourceTree = "<group>"; };
+		B10018 /* SavedSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSnippet.swift; sourceTree = "<group>"; };
+		B10019 /* SnippetTokenResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetTokenResolver.swift; sourceTree = "<group>"; };
+		B10020 /* SnippetEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorView.swift; sourceTree = "<group>"; };
+		B10021 /* SnippetListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetListView.swift; sourceTree = "<group>"; };
+		P10001 /* Clipboard Manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Clipboard Manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F10001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G10001 = {
+			isa = PBXGroup;
+			children = (
+				G10002 /* Clipboard Manager */,
+				G10008 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G10002 /* Clipboard Manager */ = {
+			isa = PBXGroup;
+			children = (
+				G10003 /* App */,
+				G10004 /* Models */,
+				G10005 /* Services */,
+				G10006 /* Views */,
+				G10007 /* Utilities */,
+				G10009 /* Resources */,
+				B10015 /* Info.plist */,
+				B10016 /* Clipboard_Manager.entitlements */,
+			);
+			path = "Clipboard Manager";
+			sourceTree = "<group>";
+		};
+		G10003 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B10001 /* ClipboardManagerApp.swift */,
+				B10002 /* AppDelegate.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		G10004 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10003 /* ClipboardEntry.swift */,
+				B10018 /* SavedSnippet.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		G10005 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B10004 /* ClipboardMonitor.swift */,
+				B10005 /* HotkeyManager.swift */,
+				B10006 /* SettingsManager.swift */,
+				B10019 /* SnippetTokenResolver.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		G10006 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B10008 /* ClipboardListView.swift */,
+				B10009 /* ClipboardRowView.swift */,
+				B10010 /* ClipboardDetailView.swift */,
+				B10011 /* FilterBar.swift */,
+				B10012 /* SettingsView.swift */,
+				B10013 /* ClipboardPanel.swift */,
+				B10020 /* SnippetEditorView.swift */,
+				B10021 /* SnippetListView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		G10007 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				B10007 /* AppIconResolver.swift */,
+				B10017 /* KeyEventHandler.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		G10008 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				P10001 /* Clipboard Manager.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		G10009 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B10014 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T10001 /* Clipboard Manager */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10003;
+			buildPhases = (
+				S10001 /* Sources */,
+				F10001 /* Frameworks */,
+				R10001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Clipboard Manager";
+			productName = "Clipboard Manager";
+			productReference = P10001;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		PR0001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = C10001;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = G10001;
+			productRefGroup = G10008;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T10001,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		R10001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10014 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		S10001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001 /* ClipboardManagerApp.swift in Sources */,
+				A10002 /* AppDelegate.swift in Sources */,
+				A10003 /* ClipboardEntry.swift in Sources */,
+				A10004 /* ClipboardMonitor.swift in Sources */,
+				A10005 /* HotkeyManager.swift in Sources */,
+				A10006 /* SettingsManager.swift in Sources */,
+				A10007 /* AppIconResolver.swift in Sources */,
+				A10008 /* ClipboardListView.swift in Sources */,
+				A10009 /* ClipboardRowView.swift in Sources */,
+				A10010 /* ClipboardDetailView.swift in Sources */,
+				A10011 /* FilterBar.swift in Sources */,
+				A10012 /* SettingsView.swift in Sources */,
+				A10013 /* ClipboardPanel.swift in Sources */,
+				A10015 /* KeyEventHandler.swift in Sources */,
+				A10016 /* SavedSnippet.swift in Sources */,
+				A10017 /* SnippetTokenResolver.swift in Sources */,
+				A10018 /* SnippetEditorView.swift in Sources */,
+				A10019 /* SnippetListView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		C10D01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C10R01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		C10D02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "Clipboard Manager/Clipboard_Manager.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VWR39LZW5M;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Clipboard Manager/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Clipboard Manager";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.DNZ.clipboard-manager";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C10R02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "Clipboard Manager/Clipboard_Manager.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VWR39LZW5M;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Clipboard Manager/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Clipboard Manager";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.DNZ.clipboard-manager";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C10001 /* Build configuration list for PBXProject */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10D01 /* Debug */,
+				C10R01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10003 /* Build configuration list for PBXNativeTarget */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10D02 /* Debug */,
+				C10R02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = PR0001;
+}
