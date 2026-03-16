@@ -144,10 +144,6 @@ class ClipboardMonitor: ObservableObject {
 
         let context = ModelContext(modelContainer)
 
-        // Debug: log source app for Excel detection
-        debugLog("Copy detected — bundleID: \(bundleID ?? "nil"), appName: \(appName ?? "nil"), excelClean: \(settings.excelCleanNonContiguous)")
-        debugLog("Pasteboard types: \(pasteboard.types?.map(\.rawValue) ?? [])")
-
         // Check local file URLs first — only file:// URLs, not http(s):// from browsers
         let fileURLs = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.filter { $0.isFileURL }
         if let urls = fileURLs, !urls.isEmpty {
@@ -164,7 +160,7 @@ class ClipboardMonitor: ObservableObject {
             if let imgData = thumbnail {
                 performOCR(imageData: imgData, entryID: entry.id)
             }
-        } else if !(bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous), let imageData = extractImageData(from: pasteboard) {
+        } else if !(bundleID == "com.microsoft.Excel" && settings.excelCleanup && settings.excelCopyAsText), let imageData = extractImageData(from: pasteboard) {
             // Detect screenshots: macOS screenshot copies have specific pasteboard types
             let screenshotBundleIDs: Set<String> = [
                 "com.apple.screencaptureui",
@@ -205,7 +201,7 @@ class ClipboardMonitor: ObservableObject {
             let types = pasteboard.types?.map(\.rawValue) ?? []
             NSLog("[ClipboardManager] RTF captured: rtf=\(rtfData.count)b, rtfd=\(rtfdData?.count ?? 0)b, types=\(types)")
             // For Excel non-contiguous copies, prefer HTML-derived text
-            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous
+            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanup && settings.excelCleanNonContiguous
             let cleanedText = isExcel ? cleanExcelText(from: pasteboard) : nil
             let finalText = cleanedText ?? text
             if let cleaned = cleanedText {
@@ -224,7 +220,7 @@ class ClipboardMonitor: ObservableObject {
             )
             context.insert(entry)
         } else if let text = pasteboard.string(forType: .string) {
-            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous
+            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanup && settings.excelCleanNonContiguous
             let cleanedText = isExcel ? cleanExcelText(from: pasteboard) : nil
             let finalText = cleanedText ?? text
             if let cleaned = cleanedText {

@@ -110,8 +110,28 @@ struct GeneralSettingsView: View {
             Toggle("Instant Typing to Search", isOn: $settings.instantTyping)
                 .help("When on, typing immediately filters the list. When off, use a shortcut to focus the search field.")
 
-            Toggle("Clean Excel Non-Contiguous Rows", isOn: $settings.excelCleanNonContiguous)
-                .help("When copying non-contiguous rows in Excel, strip intermediate unselected rows from the pasted text.")
+            Toggle("Excel Cleanup", isOn: $settings.excelCleanup)
+
+            if settings.excelCleanup {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("Copy as text instead of image", isOn: $settings.excelCopyAsText)
+                        Text("Excel copies include an image. This captures the text content instead.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("Strip non-contiguous gaps", isOn: $settings.excelCleanNonContiguous)
+                        Text("When copying non-adjacent rows or columns, removes the unselected ones in between.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    }
+                }
+                .padding(.leading, 20)
+            }
 
             HStack {
                 Text("Toolbar Display")
@@ -444,6 +464,8 @@ struct BackupData: Codable {
         var toolbarDisplay: String?
         var mouseAction: String?
         var snippetPreviewLines: Int?
+        var excelCleanup: Bool?
+        var excelCopyAsText: Bool?
         var excelCleanNonContiguous: Bool?
         var excludedBundleIDs: [String]?
         var toggleShortcut: KeyCombo?
@@ -545,6 +567,8 @@ struct SnippetBackupView: View {
             toolbarDisplay: sm.toolbarDisplay,
             mouseAction: sm.mouseAction,
             snippetPreviewLines: sm.snippetPreviewLines,
+            excelCleanup: sm.excelCleanup,
+            excelCopyAsText: sm.excelCopyAsText,
             excelCleanNonContiguous: sm.excelCleanNonContiguous,
             excludedBundleIDs: Array(sm.excludedBundleIDs),
             toggleShortcut: sm.toggleShortcut,
@@ -607,6 +631,8 @@ struct SnippetBackupView: View {
                 if let v = s.toolbarDisplay { sm.toolbarDisplay = v }
                 if let v = s.mouseAction { sm.mouseAction = v }
                 if let v = s.snippetPreviewLines { sm.snippetPreviewLines = v }
+                if let v = s.excelCleanup { sm.excelCleanup = v }
+                if let v = s.excelCopyAsText { sm.excelCopyAsText = v }
                 if let v = s.excelCleanNonContiguous { sm.excelCleanNonContiguous = v }
                 if let v = s.excludedBundleIDs { sm.excludedBundleIDs = Set(v) }
                 if let v = s.toggleShortcut { sm.toggleShortcut = v }

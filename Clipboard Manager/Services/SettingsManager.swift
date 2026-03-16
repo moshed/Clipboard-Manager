@@ -114,6 +114,14 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(snippetPreviewLines, forKey: "snippetPreviewLines") }
     }
 
+    @Published var excelCleanup: Bool {
+        didSet { UserDefaults.standard.set(excelCleanup, forKey: "excelCleanup") }
+    }
+
+    @Published var excelCopyAsText: Bool {
+        didSet { UserDefaults.standard.set(excelCopyAsText, forKey: "excelCopyAsText") }
+    }
+
     @Published var excelCleanNonContiguous: Bool {
         didSet { UserDefaults.standard.set(excelCleanNonContiguous, forKey: "excelCleanNonContiguous") }
     }
@@ -153,6 +161,8 @@ class SettingsManager: ObservableObject {
         self.tabToggleShortcut = SettingsManager.loadKeyCombo(forKey: "tabToggleShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: 0)
         self.tabBackwardShortcut = SettingsManager.loadKeyCombo(forKey: "tabBackwardShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(shiftKey))
         self.snippetPreviewLines = UserDefaults.standard.object(forKey: "snippetPreviewLines") as? Int ?? 2
+        self.excelCleanup = UserDefaults.standard.object(forKey: "excelCleanup") as? Bool ?? true
+        self.excelCopyAsText = UserDefaults.standard.object(forKey: "excelCopyAsText") as? Bool ?? true
         self.excelCleanNonContiguous = UserDefaults.standard.object(forKey: "excelCleanNonContiguous") as? Bool ?? true
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
