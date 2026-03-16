@@ -2,12 +2,12 @@ import AppKit
 import Foundation
 
 enum SnippetTokenResolver {
-    static func resolve(_ content: String) -> String {
+    static func resolve(_ content: String, clipboardText: String? = nil) -> String {
         var result = content
 
-        // {{clipboard}} — current pasteboard text
+        // {{clipboard}} — current pasteboard text (use pre-captured value if provided)
         if result.contains("{{clipboard}}") {
-            let clipText = NSPasteboard.general.string(forType: .string) ?? ""
+            let clipText = clipboardText ?? NSPasteboard.general.string(forType: .string) ?? ""
             result = result.replacingOccurrences(of: "{{clipboard}}", with: clipText)
         }
 
@@ -52,5 +52,57 @@ enum SnippetTokenResolver {
         }
 
         return result
+    }
+
+    /// Returns array of (NSRange, replacement) pairs for all tokens in the string, ordered by position
+    static func findTokenRanges(in content: String, clipboardText: String? = nil) -> [(NSRange, String)] {
+        var results: [(NSRange, String)] = []
+        let nsContent = content as NSString
+
+        let now = Date()
+        let clipText = clipboardText ?? NSPasteboard.general.string(forType: .string) ?? ""
+
+        // Fixed tokens
+        let fixedTokens: [(String, () -> String)] = [
+            ("{{clipboard}}", { clipText }),
+            ("{{date}}", {
+                let fmt = DateFormatter(); fmt.dateStyle = .short; fmt.timeStyle = .none
+                return fmt.string(from: now)
+            }),
+            ("{{time}}", {
+                let fmt = DateFormatter(); fmt.dateStyle = .none; fmt.timeStyle = .short
+                return fmt.string(from: now)
+            }),
+            ("{{datetime}}", {
+                let fmt = DateFormatter(); fmt.dateStyle = .short; fmt.timeStyle = .short
+                return fmt.string(from: now)
+            }),
+            ("{{timestamp}}", { ISO8601DateFormatter().string(from: now) }),
+        ]
+
+        for (token, resolver) in fixedTokens {
+            var searchRange = NSRange(location: 0, length: nsContent.length)
+            while true {
+                let range = nsContent.range(of: token, range: searchRange)
+                if range.location == NSNotFound { break }
+                results.append((range, resolver()))
+                searchRange = NSRange(location: range.upperBound, length: nsContent.length - range.upperBound)
+            }
+        }
+
+        // Custom date format: {{date:FORMAT}}
+        if let regex = try? NSRegularExpression(pattern: #"\{\{date:([^}]+)\}\}"#) {
+            let matches = regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length))
+            for match in matches {
+                guard let formatRange = Range(match.range(at: 1), in: content) else { continue }
+                let fmt = DateFormatter()
+                fmt.dateFormat = String(content[formatRange])
+                results.append((match.range, fmt.string(from: now)))
+            }
+        }
+
+        // Sort by location
+        results.sort { $0.0.location < $1.0.location }
+        return results
     }
 }

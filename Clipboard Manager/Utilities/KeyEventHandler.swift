@@ -113,16 +113,14 @@ class KeyCaptureView: NSView {
         if flags.contains(.option) { mods |= UInt32(optionKey) }
         if flags.contains(.control) { mods |= UInt32(controlKey) }
 
-        // Tab toggle shortcuts — skip when in a text field so Tab works for typing/indenting
-        if !inTextField {
-            if let combo = settings.tabBackwardShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
-                onToggleTabBackward?()
-                return true
-            }
-            if let combo = settings.tabToggleShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
-                onToggleTab?()
-                return true
-            }
+        // Tab toggle shortcuts — always intercept, even in text fields
+        if let combo = settings.tabBackwardShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+            onToggleTabBackward?()
+            return true
+        }
+        if let combo = settings.tabToggleShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+            onToggleTab?()
+            return true
         }
 
         // Cmd+F to focus search
@@ -135,24 +133,26 @@ class KeyCaptureView: NSView {
             return false
         }
 
-        // Arrow keys for navigation (but let text fields handle them normally)
-        if !inTextField {
-            switch Int(keyCode) {
-            case kVK_DownArrow:
-                onDownArrow?()
-                return true
-            case kVK_UpArrow:
-                onUpArrow?()
-                return true
-            case kVK_RightArrow:
+        // Up/Down arrows always navigate clips; Left/Right only outside text fields
+        switch Int(keyCode) {
+        case kVK_DownArrow:
+            onDownArrow?()
+            return true
+        case kVK_UpArrow:
+            onUpArrow?()
+            return true
+        case kVK_RightArrow:
+            if !inTextField {
                 onRightArrow?()
                 return true
-            case kVK_LeftArrow:
+            }
+        case kVK_LeftArrow:
+            if !inTextField {
                 onLeftArrow?()
                 return true
-            default:
-                break
             }
+        default:
+            break
         }
 
         // Copy/delete shortcuts work even in text fields, BUT only if they
@@ -188,6 +188,9 @@ class KeyCaptureView: NSView {
             onExpand?()
             return true
         }
+
+        // Escape key — not a printable character, let it pass through
+        if Int(keyCode) == kVK_Escape { return false }
 
         // Forward printable characters to search field (only if instant typing is on)
         if settings.instantTyping, let chars = event.characters, !chars.isEmpty {

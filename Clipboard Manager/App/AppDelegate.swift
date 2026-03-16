@@ -290,17 +290,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func pasteSnippetContent(_ content: String, rtfData: Data? = nil) {
-        let resolved = SnippetTokenResolver.resolve(content)
-
         // Set a flag so the clipboard monitor ignores this change
         clipboardMonitor?.snippetPasteFlag = true
 
         let pb = NSPasteboard.general
+        // Capture clipboard BEFORE clearing so {{clipboard}} token can use it
+        let savedClipboard = pb.string(forType: .string) ?? ""
         pb.clearContents()
-        if let rtfData {
-            pb.setData(rtfData, forType: .rtf)
+
+        if let rtfData,
+           let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
+            // Resolve tokens in RTF
+            let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
+            for (range, replacement) in tokens.reversed() {
+                attrStr.replaceCharacters(in: range, with: replacement)
+            }
+            if let resolvedRTF = try? attrStr.data(from: NSRange(location: 0, length: attrStr.length),
+                                                     documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+                pb.setData(resolvedRTF, forType: .rtf)
+            }
+            pb.setString(attrStr.string, forType: .string)
+        } else {
+            let resolved = SnippetTokenResolver.resolve(content, clipboardText: savedClipboard)
+            pb.setString(resolved, forType: .string)
         }
-        pb.setString(resolved, forType: .string)
 
         // Paste into the current frontmost app (panel isn't open for global hotkey)
         guard let frontApp = previousApp ?? NSWorkspace.shared.frontmostApplication else { return }
@@ -322,16 +335,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardMonitor?.snippetPasteFlag = true
 
         let pb = NSPasteboard.general
+        // Capture clipboard BEFORE clearing so {{clipboard}} token can use it
+        let savedClipboard = pb.string(forType: .string) ?? ""
+        debugLog("pasteSnippetFromPanel: savedClipboard=\"\(savedClipboard.prefix(60))\" snippet.content=\"\(snippet.content.prefix(60))\"")
         pb.clearContents()
 
         if let rtfData = snippet.rtfData,
-           let attrStr = NSAttributedString(rtf: rtfData, documentAttributes: nil) {
-            // Resolve tokens in the plain text, put both RTF and plain on pasteboard
-            let resolved = SnippetTokenResolver.resolve(attrStr.string)
-            pb.setData(rtfData, forType: .rtf)
-            pb.setString(resolved, forType: .string)
+           let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
+            // Resolve tokens in both RTF and plain text
+            let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
+            debugLog("  RTF path: \(tokens.count) tokens found, attrStr=\"\(attrStr.string.prefix(60))\"")
+            // Replace from end to start to preserve ranges
+            for (range, replacement) in tokens.reversed() {
+                debugLog("  replacing range \(range) with \"\(replacement.prefix(40))\"")
+                attrStr.replaceCharacters(in: range, with: replacement)
+            }
+            debugLog("  after resolve: \"\(attrStr.string.prefix(80))\"")
+            if let resolvedRTF = try? attrStr.data(from: NSRange(location: 0, length: attrStr.length),
+                                                     documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+                pb.setData(resolvedRTF, forType: .rtf)
+            }
+            pb.setString(attrStr.string, forType: .string)
         } else {
-            let resolved = SnippetTokenResolver.resolve(snippet.content)
+            let resolved = SnippetTokenResolver.resolve(snippet.content, clipboardText: savedClipboard)
+            debugLog("  plain path: resolved=\"\(resolved.prefix(80))\"")
             pb.setString(resolved, forType: .string)
         }
 

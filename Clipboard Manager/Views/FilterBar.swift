@@ -211,6 +211,7 @@ struct FilterAppRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)

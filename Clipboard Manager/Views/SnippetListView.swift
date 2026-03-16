@@ -271,14 +271,14 @@ struct SnippetListView: View {
                     iconPickerItemID = item.id
                 } label: {
                     ZStack {
-                        Image(systemName: "folder")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.secondary)
+                        FolderShape()
+                            .stroke(.secondary, lineWidth: 1)
+                            .frame(width: 20, height: 16)
                         if let icon = item.iconName {
                             Image(systemName: icon)
-                                .font(.system(size: 7, weight: .bold))
+                                .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .offset(y: 2)
+                                .offset(y: 1.5)
                         }
                     }
                     .frame(width: 20)
@@ -734,5 +734,76 @@ struct InlineShortcutBadge: View {
             NSEvent.removeMonitor(m)
             monitor = nil
         }
+    }
+}
+
+// MARK: - Custom Folder Shape (from SVG)
+
+struct FolderShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Original SVG viewBox: 425.527 x 342.027
+        let vw: CGFloat = 425.527
+        let vh: CGFloat = 342.027
+        let sx = rect.width / vw
+        let sy = rect.height / vh
+
+        var path = Path()
+
+        // Outer folder outline
+        path.move(to: CGPoint(x: 57.04 * sx + rect.minX, y: 342.03 * sy + rect.minY))
+
+        // Top-right straight edge
+        path.addLine(to: CGPoint(x: 373.08 * sx + rect.minX, y: 342.03 * sy + rect.minY))
+
+        // Top-right corner curve → right side down
+        path.addCurve(
+            to: CGPoint(x: 425.53 * sx + rect.minX, y: 285.46 * sy + rect.minY),
+            control1: CGPoint(x: 406.42 * sx + rect.minX, y: 342.03 * sy + rect.minY),
+            control2: CGPoint(x: 425.53 * sx + rect.minX, y: 322.76 * sy + rect.minY))
+
+        // Right side
+        path.addLine(to: CGPoint(x: 425.53 * sx + rect.minX, y: 91.16 * sy + rect.minY))
+
+        // Top-right body corner
+        path.addCurve(
+            to: CGPoint(x: 368.49 * sx + rect.minX, y: 34.75 * sy + rect.minY),
+            control1: CGPoint(x: 425.53 * sx + rect.minX, y: 53.86 * sy + rect.minY),
+            control2: CGPoint(x: 406.27 * sx + rect.minX, y: 34.75 * sy + rect.minY))
+
+        // Top edge to tab
+        path.addLine(to: CGPoint(x: 186.21 * sx + rect.minX, y: 34.75 * sy + rect.minY))
+
+        // Tab curves
+        path.addCurve(
+            to: CGPoint(x: 155.17 * sx + rect.minX, y: 23.48 * sy + rect.minY),
+            control1: CGPoint(x: 172.39 * sx + rect.minX, y: 34.75 * sy + rect.minY),
+            control2: CGPoint(x: 164.84 * sx + rect.minX, y: 31.87 * sy + rect.minY))
+
+        path.addLine(to: CGPoint(x: 144.02 * sx + rect.minX, y: 13.99 * sy + rect.minY))
+
+        path.addCurve(
+            to: CGPoint(x: 103.76 * sx + rect.minX, y: 0 * sy + rect.minY),
+            control1: CGPoint(x: 131.56 * sx + rect.minX, y: 3.12 * sy + rect.minY),
+            control2: CGPoint(x: 122.51 * sx + rect.minX, y: 0 * sy + rect.minY))
+
+        // Top-left
+        path.addLine(to: CGPoint(x: 49.89 * sx + rect.minX, y: 0 * sy + rect.minY))
+
+        path.addCurve(
+            to: CGPoint(x: 0 * sx + rect.minX, y: 53.52 * sy + rect.minY),
+            control1: CGPoint(x: 17.94 * sx + rect.minX, y: 0 * sy + rect.minY),
+            control2: CGPoint(x: 0 * sx + rect.minX, y: 17.71 * sy + rect.minY))
+
+        // Left side down
+        path.addLine(to: CGPoint(x: 0 * sx + rect.minX, y: 285.46 * sy + rect.minY))
+
+        // Bottom-left corner
+        path.addCurve(
+            to: CGPoint(x: 57.04 * sx + rect.minX, y: 342.03 * sy + rect.minY),
+            control1: CGPoint(x: 0 * sx + rect.minX, y: 322.92 * sy + rect.minY),
+            control2: CGPoint(x: 19.26 * sx + rect.minX, y: 342.03 * sy + rect.minY))
+
+        path.closeSubpath()
+        return path
     }
 }

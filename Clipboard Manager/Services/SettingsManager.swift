@@ -114,6 +114,10 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(snippetPreviewLines, forKey: "snippetPreviewLines") }
     }
 
+    @Published var excelCleanNonContiguous: Bool {
+        didSet { UserDefaults.standard.set(excelCleanNonContiguous, forKey: "excelCleanNonContiguous") }
+    }
+
     @Published var toggleShortcut: KeyCombo {
         didSet { saveKeyCombo(toggleShortcut, forKey: "toggleShortcut") }
     }
@@ -149,6 +153,7 @@ class SettingsManager: ObservableObject {
         self.tabToggleShortcut = SettingsManager.loadKeyCombo(forKey: "tabToggleShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: 0)
         self.tabBackwardShortcut = SettingsManager.loadKeyCombo(forKey: "tabBackwardShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(shiftKey))
         self.snippetPreviewLines = UserDefaults.standard.object(forKey: "snippetPreviewLines") as? Int ?? 2
+        self.excelCleanNonContiguous = UserDefaults.standard.object(forKey: "excelCleanNonContiguous") as? Bool ?? true
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
         self.copyPlainShortcut = SettingsManager.loadKeyCombo(forKey: "copyPlainShortcut") ?? .defaultCopyPlain

@@ -116,9 +116,24 @@ class ClipboardMonitor: ObservableObject {
             return
         }
 
-        // Determine source app: prefer app under mouse (catches right-click context menus),
-        // then frontmost app, then last tracked active app
-        let frontApp = appUnderMouse() ?? NSWorkspace.shared.frontmostApplication ?? lastActiveApp
+        // Determine source app: if our own panel has a text view as first responder,
+        // the copy came from within Clipboard Manager. Otherwise prefer app under mouse
+        // (catches right-click context menus), then frontmost app, then last tracked active app.
+        let fromSelf: Bool
+        if let panel = NSApp.windows.first(where: { $0 is ClipboardPanel }),
+           panel.isVisible,
+           panel.firstResponder is NSTextView {
+            fromSelf = true
+        } else {
+            fromSelf = false
+        }
+
+        let frontApp: NSRunningApplication?
+        if fromSelf {
+            frontApp = NSRunningApplication.current
+        } else {
+            frontApp = appUnderMouse() ?? NSWorkspace.shared.frontmostApplication ?? lastActiveApp
+        }
         let bundleID = frontApp?.bundleIdentifier
 
         if let bid = bundleID, settings.isExcluded(bid) {
@@ -128,6 +143,10 @@ class ClipboardMonitor: ObservableObject {
         let appName = frontApp?.localizedName
 
         let context = ModelContext(modelContainer)
+
+        // Debug: log source app for Excel detection
+        debugLog("Copy detected — bundleID: \(bundleID ?? "nil"), appName: \(appName ?? "nil"), excelClean: \(settings.excelCleanNonContiguous)")
+        debugLog("Pasteboard types: \(pasteboard.types?.map(\.rawValue) ?? [])")
 
         // Check local file URLs first — only file:// URLs, not http(s):// from browsers
         let fileURLs = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.filter { $0.isFileURL }
@@ -145,7 +164,7 @@ class ClipboardMonitor: ObservableObject {
             if let imgData = thumbnail {
                 performOCR(imageData: imgData, entryID: entry.id)
             }
-        } else if let imageData = extractImageData(from: pasteboard) {
+        } else if !(bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous), let imageData = extractImageData(from: pasteboard) {
             // Detect screenshots: macOS screenshot copies have specific pasteboard types
             let screenshotBundleIDs: Set<String> = [
                 "com.apple.screencaptureui",
@@ -185,19 +204,38 @@ class ClipboardMonitor: ObservableObject {
             let rtfdData = pasteboard.data(forType: .rtfd)
             let types = pasteboard.types?.map(\.rawValue) ?? []
             NSLog("[ClipboardManager] RTF captured: rtf=\(rtfData.count)b, rtfd=\(rtfdData?.count ?? 0)b, types=\(types)")
+            // For Excel non-contiguous copies, prefer HTML-derived text
+            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous
+            let cleanedText = isExcel ? cleanExcelText(from: pasteboard) : nil
+            let finalText = cleanedText ?? text
+            if let cleaned = cleanedText {
+                // Replace system clipboard with cleaned text
+                pasteboard.clearContents()
+                pasteboard.setString(cleaned, forType: .string)
+                lastChangeCount = pasteboard.changeCount
+            }
             let entry = ClipboardEntry(
-                textContent: text,
-                rtfData: rtfData,
-                rtfdData: rtfdData,
-                contentType: .rtf,
+                textContent: finalText,
+                rtfData: cleanedText != nil ? nil : rtfData,  // drop RTF if we cleaned the text
+                rtfdData: cleanedText != nil ? nil : rtfdData,
+                contentType: cleanedText != nil ? .text : .rtf,
                 sourceAppBundleID: bundleID,
                 sourceAppName: appName
             )
             context.insert(entry)
         } else if let text = pasteboard.string(forType: .string) {
-            let contentType: ContentType = isURL(text) ? .url : .text
+            let isExcel = bundleID == "com.microsoft.Excel" && settings.excelCleanNonContiguous
+            let cleanedText = isExcel ? cleanExcelText(from: pasteboard) : nil
+            let finalText = cleanedText ?? text
+            if let cleaned = cleanedText {
+                // Replace system clipboard with cleaned text
+                pasteboard.clearContents()
+                pasteboard.setString(cleaned, forType: .string)
+                lastChangeCount = pasteboard.changeCount
+            }
+            let contentType: ContentType = isURL(finalText) ? .url : .text
             let entry = ClipboardEntry(
-                textContent: text,
+                textContent: finalText,
                 contentType: contentType,
                 sourceAppBundleID: bundleID,
                 sourceAppName: appName
@@ -344,6 +382,139 @@ class ClipboardMonitor: ObservableObject {
                 }
             }
         }
+    }
+
+    /// When Excel copies non-contiguous rows, the plain text includes all
+    /// intermediate rows. The HTML only contains the actually selected rows.
+    /// Parse the HTML table to produce clean tab-separated text.
+    private func debugLog(_ message: String) {
+        let path = "/tmp/clipboard-manager-excel-debug.log"
+        let line = "\(Date()): \(message)\n"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+        }
+    }
+
+    /// Convert Excel column letter(s) to 1-based index (A=1, B=2, ..., Z=26, AA=27, etc.)
+    private func columnToIndex(_ col: String) -> Int {
+        var result = 0
+        for char in col.uppercased() {
+            result = result * 26 + Int(char.asciiValue! - 64)
+        }
+        return result
+    }
+
+    /// Query Excel via osascript for the current selection address
+    /// Returns (selectedRows, selectedColumns) as 1-based sets, or nil if unavailable
+    private func getExcelSelection() -> (rows: Set<Int>, cols: Set<Int>)? {
+        let script = "tell application \"Microsoft Excel\" to get address of selection"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            debugLog("osascript launch error: \(error)")
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0,
+              let address = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !address.isEmpty else {
+            debugLog("osascript failed, status=\(process.terminationStatus)")
+            return nil
+        }
+        debugLog("Excel selection address: \(address)")
+
+        // Parse address like "$A$1:$A$3,$C$1:$C$3"
+        // Each cell ref is $COL$ROW
+        var rows = Set<Int>()
+        var cols = Set<Int>()
+        let cellPattern = try! NSRegularExpression(pattern: "\\$([A-Z]+)\\$([0-9]+)")
+        let ranges = address.split(separator: ",")
+        for range in ranges {
+            let s = String(range)
+            let matches = cellPattern.matches(in: s, range: NSRange(s.startIndex..., in: s))
+            var rangeCols: [Int] = []
+            var rangeRows: [Int] = []
+            for m in matches {
+                if let colRange = Range(m.range(at: 1), in: s),
+                   let rowRange = Range(m.range(at: 2), in: s) {
+                    rangeCols.append(columnToIndex(String(s[colRange])))
+                    rangeRows.append(Int(s[rowRange])!)
+                }
+            }
+            // Expand ranges (e.g. $A$1:$C$3 → cols 1-3, rows 1-3)
+            if rangeCols.count >= 2 {
+                for c in rangeCols.min()!...rangeCols.max()! { cols.insert(c) }
+            } else if let c = rangeCols.first { cols.insert(c) }
+            if rangeRows.count >= 2 {
+                for r in rangeRows.min()!...rangeRows.max()! { rows.insert(r) }
+            } else if let r = rangeRows.first { rows.insert(r) }
+        }
+        return (rows.isEmpty || cols.isEmpty) ? nil : (rows, cols)
+    }
+
+    private func cleanExcelText(from pasteboard: NSPasteboard) -> String? {
+        guard let text = pasteboard.string(forType: .string) else { return nil }
+
+        let textRows = text.components(separatedBy: "\n").filter { !$0.isEmpty }
+        guard !textRows.isEmpty else { return nil }
+
+        guard let selection = getExcelSelection() else {
+            debugLog("Excel: couldn't get selection, returning text as-is")
+            return nil
+        }
+
+        let selectedRows = selection.rows
+        let selectedCols = selection.cols
+        let minRow = selectedRows.min()!
+        let minCol = selectedCols.min()!
+        let maxCol = selectedCols.max()!
+
+        // Count total columns in bounding box
+        let totalCols = maxCol - minCol + 1
+        let textColCount = textRows.first.map { $0.split(separator: "\t", omittingEmptySubsequences: false).count } ?? totalCols
+
+        // Check if filtering is needed
+        let allRowsSelected = textRows.count == selectedRows.count
+        let allColsSelected = textColCount == selectedCols.count
+        if allRowsSelected && allColsSelected { return nil } // no cleaning needed
+
+        debugLog("Excel: selected rows=\(selectedRows.sorted()), cols=\(selectedCols.sorted()), textRows=\(textRows.count), textCols=\(textColCount)")
+
+        var cleanedRows: [String] = []
+        for (index, row) in textRows.enumerated() {
+            let excelRow = minRow + index
+            if !selectedRows.contains(excelRow) { continue }
+
+            // Filter columns
+            let cells = row.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            if allColsSelected {
+                cleanedRows.append(row)
+            } else {
+                var filteredCells: [String] = []
+                for (colIndex, cell) in cells.enumerated() {
+                    let excelCol = minCol + colIndex
+                    if selectedCols.contains(excelCol) {
+                        filteredCells.append(cell)
+                    }
+                }
+                cleanedRows.append(filteredCells.joined(separator: "\t"))
+            }
+        }
+
+        debugLog("Excel: cleaned \(textRows.count)x\(textColCount) → \(cleanedRows.count)x\(selectedCols.count)")
+        let result = cleanedRows.joined(separator: "\n")
+        return result.isEmpty ? nil : result
     }
 
     private func isURL(_ text: String) -> Bool {

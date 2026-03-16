@@ -1,6 +1,8 @@
 import SwiftUI
+import SwiftData
 import ServiceManagement
 import Carbon
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var settings = SettingsManager.shared
@@ -38,16 +40,21 @@ struct SettingsView: View {
 
     private func settingsTabButton(_ tab: Int, icon: String, label: String) -> some View {
         let isActive = settingsTab == tab
+        let display = settings.toolbarDisplay
         return Button {
             settingsTab = tab
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
-                Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                if display != "textOnly" {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .medium))
+                }
+                if display != "iconOnly" {
+                    Text(label)
+                        .font(.system(size: 11, weight: .medium))
+                }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, display == "iconOnly" ? 8 : 10)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 6)
@@ -103,6 +110,9 @@ struct GeneralSettingsView: View {
             Toggle("Instant Typing to Search", isOn: $settings.instantTyping)
                 .help("When on, typing immediately filters the list. When off, use a shortcut to focus the search field.")
 
+            Toggle("Clean Excel Non-Contiguous Rows", isOn: $settings.excelCleanNonContiguous)
+                .help("When copying non-contiguous rows in Excel, strip intermediate unselected rows from the pasted text.")
+
             HStack {
                 Text("Toolbar Display")
                 Spacer()
@@ -157,6 +167,10 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
                     .font(.system(size: 12))
             }
+
+            Divider()
+
+            SnippetBackupView()
 
             Divider()
 
@@ -399,6 +413,242 @@ struct ClearableTextField: View {
         .padding(.vertical, 5)
         .background(Color.primary.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Snippet Export/Import
+
+struct BackupData: Codable {
+    var snippets: [SnippetJSON]
+    var settings: SettingsJSON?
+
+    struct SnippetJSON: Codable {
+        var id: UUID
+        var title: String
+        var content: String
+        var order: Int
+        var isFolder: Bool
+        var folderID: UUID?
+        var iconName: String?
+        var hotkeyKeyCode: UInt32?
+        var hotkeyModifiers: UInt32?
+        var rtfDataBase64: String?
+        var createdAt: Date
+    }
+
+    struct SettingsJSON: Codable {
+        var defaultCopyPlainText: Bool?
+        var maxHistoryCount: Int?
+        var dismissOnClickOutside: Bool?
+        var instantTyping: Bool?
+        var toolbarDisplay: String?
+        var mouseAction: String?
+        var snippetPreviewLines: Int?
+        var excelCleanNonContiguous: Bool?
+        var excludedBundleIDs: [String]?
+        var toggleShortcut: KeyCombo?
+        var copyPlainShortcut: KeyCombo?
+        var copyFormattedShortcut: KeyCombo?
+        var deleteShortcut: KeyCombo?
+        var expandShortcut: KeyCombo?
+        var searchShortcut: KeyCombo?
+        var tabToggleShortcut: KeyCombo?
+        var tabBackwardShortcut: KeyCombo?
+    }
+}
+
+struct SnippetBackupView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SavedSnippet.order) private var allSnippets: [SavedSnippet]
+    @State private var importResult: String?
+    @State private var showImportConfirm = false
+    @State private var pendingImportURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Backup (Snippets & Settings)")
+                .font(.system(size: 12, weight: .semibold))
+
+            HStack(spacing: 12) {
+                Button {
+                    exportSnippets()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 11))
+                        Text("Export")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    chooseImportFile()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 11))
+                        Text("Import")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if let result = importResult {
+                    Text(result)
+                        .font(.system(size: 11))
+                        .foregroundStyle(result.contains("Error") ? .red : .green)
+                }
+            }
+            .alert("Import Snippets?", isPresented: $showImportConfirm) {
+                Button("Cancel", role: .cancel) { pendingImportURL = nil }
+                Button("Replace All", role: .destructive) {
+                    if let url = pendingImportURL {
+                        importSnippets(from: url, merge: false)
+                    }
+                }
+                Button("Merge") {
+                    if let url = pendingImportURL {
+                        importSnippets(from: url, merge: true)
+                    }
+                }
+            } message: {
+                Text("Replace all existing snippets, or merge with current ones?")
+            }
+        }
+    }
+
+    private func exportSnippets() {
+        let sm = SettingsManager.shared
+        let items = allSnippets.map { s in
+            BackupData.SnippetJSON(
+                id: s.id,
+                title: s.title,
+                content: s.content,
+                order: s.order,
+                isFolder: s.isFolder,
+                folderID: s.folderID,
+                iconName: s.iconName,
+                hotkeyKeyCode: s.hotkeyKeyCode,
+                hotkeyModifiers: s.hotkeyModifiers,
+                rtfDataBase64: s.rtfData.map { $0.base64EncodedString() },
+                createdAt: s.createdAt
+            )
+        }
+        let settingsJSON = BackupData.SettingsJSON(
+            defaultCopyPlainText: sm.defaultCopyPlainText,
+            maxHistoryCount: sm.maxHistoryCount,
+            dismissOnClickOutside: sm.dismissOnClickOutside,
+            instantTyping: sm.instantTyping,
+            toolbarDisplay: sm.toolbarDisplay,
+            mouseAction: sm.mouseAction,
+            snippetPreviewLines: sm.snippetPreviewLines,
+            excelCleanNonContiguous: sm.excelCleanNonContiguous,
+            excludedBundleIDs: Array(sm.excludedBundleIDs),
+            toggleShortcut: sm.toggleShortcut,
+            copyPlainShortcut: sm.copyPlainShortcut,
+            copyFormattedShortcut: sm.copyFormattedShortcut,
+            deleteShortcut: sm.deleteShortcut,
+            expandShortcut: sm.expandShortcut,
+            searchShortcut: sm.searchShortcut,
+            tabToggleShortcut: sm.tabToggleShortcut,
+            tabBackwardShortcut: sm.tabBackwardShortcut
+        )
+        let exportData = BackupData(snippets: items, settings: settingsJSON)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(exportData) else {
+            importResult = "Error: Failed to encode"
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "clipboard-manager-backup.json"
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try data.write(to: url)
+                importResult = "Exported \(items.count) snippets + settings"
+            } catch {
+                importResult = "Error: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func chooseImportFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            pendingImportURL = url
+            showImportConfirm = true
+        }
+    }
+
+    private func importSnippets(from url: URL, merge: Bool) {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let backup = try decoder.decode(BackupData.self, from: data)
+
+            // Import settings if present
+            if let s = backup.settings {
+                let sm = SettingsManager.shared
+                if let v = s.defaultCopyPlainText { sm.defaultCopyPlainText = v }
+                if let v = s.maxHistoryCount { sm.maxHistoryCount = v }
+                if let v = s.dismissOnClickOutside { sm.dismissOnClickOutside = v }
+                if let v = s.instantTyping { sm.instantTyping = v }
+                if let v = s.toolbarDisplay { sm.toolbarDisplay = v }
+                if let v = s.mouseAction { sm.mouseAction = v }
+                if let v = s.snippetPreviewLines { sm.snippetPreviewLines = v }
+                if let v = s.excelCleanNonContiguous { sm.excelCleanNonContiguous = v }
+                if let v = s.excludedBundleIDs { sm.excludedBundleIDs = Set(v) }
+                if let v = s.toggleShortcut { sm.toggleShortcut = v }
+                if let v = s.copyPlainShortcut { sm.copyPlainShortcut = v }
+                if let v = s.copyFormattedShortcut { sm.copyFormattedShortcut = v }
+                if let v = s.deleteShortcut { sm.deleteShortcut = v }
+                if let v = s.expandShortcut { sm.expandShortcut = v }
+                if let v = s.searchShortcut { sm.searchShortcut = v }
+                if let v = s.tabToggleShortcut { sm.tabToggleShortcut = v }
+                if let v = s.tabBackwardShortcut { sm.tabBackwardShortcut = v }
+            }
+
+            if !merge {
+                for s in allSnippets { modelContext.delete(s) }
+            }
+
+            let existingIDs = merge ? Set(allSnippets.map(\.id)) : []
+            var imported = 0
+
+            for item in backup.snippets {
+                if merge && existingIDs.contains(item.id) { continue }
+                let s = SavedSnippet(title: item.title, content: item.content, order: item.order, isFolder: item.isFolder, folderID: item.folderID)
+                s.id = item.id
+                s.iconName = item.iconName
+                s.hotkeyKeyCode = item.hotkeyKeyCode
+                s.hotkeyModifiers = item.hotkeyModifiers
+                s.createdAt = item.createdAt
+                if let b64 = item.rtfDataBase64 {
+                    s.rtfData = Data(base64Encoded: b64)
+                }
+                modelContext.insert(s)
+                imported += 1
+            }
+
+            try? modelContext.save()
+            let hasSettings = backup.settings != nil
+            importResult = "Imported \(imported) snippets\(hasSettings ? " + settings" : "")"
+            NotificationCenter.default.post(name: .snippetHotkeysChanged, object: nil)
+        } catch {
+            importResult = "Error: \(error.localizedDescription)"
+        }
+        pendingImportURL = nil
     }
 }
 

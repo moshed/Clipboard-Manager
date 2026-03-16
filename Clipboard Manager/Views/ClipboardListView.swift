@@ -366,15 +366,7 @@ struct ClipboardListView: View {
                     }
                 }
                 .popover(isPresented: showPopover, arrowEdge: .trailing) {
-                    ClipboardDetailView(
-                        entry: entry,
-                        onCopyPlain: { copyPlain(entry) },
-                        onCopyFormatted: { copyFormatted(entry) }
-                    )
-                    .frame(idealWidth: 360, maxWidth: 500, maxHeight: 600)
-                }
-                .contextMenu {
-                    entryContextMenu(for: entry)
+                    popoverContent(for: entry)
                 }
 
             if isCopied {
@@ -516,6 +508,36 @@ struct ClipboardListView: View {
                 availableApps: availableApps
             )
         }
+    }
+
+    // MARK: - Popover Content
+
+    private func popoverContent(for entry: ClipboardEntry) -> some View {
+        let panelSize = panelFrameSize()
+        return ClipboardDetailView(
+            entry: entry,
+            onCopyPlain: { copyPlain(entry) },
+            onCopyFormatted: { copyFormatted(entry) },
+            onDelete: {
+                popoverEntry = nil
+                if selectedIDs.contains(entry.id) {
+                    selectedIDs.remove(entry.id)
+                    if selectedEntry?.id == entry.id {
+                        selectedEntry = filteredEntries.first(where: { selectedIDs.contains($0.id) })
+                    }
+                }
+                modelContext.delete(entry)
+            },
+            onSaveSnippet: entry.contentType == .text || entry.contentType == .rtf || entry.contentType == .url ? { saveEntryAsSnippet(entry) } : nil
+        )
+        .frame(maxWidth: panelSize.width, maxHeight: panelSize.height)
+    }
+
+    // MARK: - Popover Sizing
+
+    private func panelFrameSize() -> CGSize {
+        let panel = NSApp.windows.first(where: { $0 is ClipboardPanel })
+        return panel?.frame.size ?? CGSize(width: 420, height: 520)
     }
 
     // MARK: - Selection Helpers
@@ -697,6 +719,13 @@ struct TwoFingerTapView: NSViewRepresentable {
 
 private class TwoFingerTapNSView: NSView {
     var onTwoFingerTap: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // Transparent views are skipped by hit testing — override to accept events
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return frame.contains(point) ? self : nil
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         onTwoFingerTap?()

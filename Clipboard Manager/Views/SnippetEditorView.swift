@@ -437,13 +437,20 @@ class RichTextEditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// Install a local event monitor that resigns first responder when clicking outside the text view
-    /// Uses mouseUp instead of mouseDown so buttons still receive their click
+    /// Only resigns on clicks that don't land on any button/control, so Save/Cancel still work
     func installClickOutsideMonitor() {
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             guard let tv = self?.textView, let window = tv.window else { return event }
             let loc = tv.convert(event.locationInWindow, from: nil)
             if !tv.bounds.contains(loc) {
-                window.makeFirstResponder(nil)
+                // Check if the click landed on an interactive control — if so, don't interfere
+                if let hitView = window.contentView?.hitTest(event.locationInWindow),
+                   hitView is NSButton || hitView is NSControl || hitView is NSTextField ||
+                   hitView.superview is NSButton || hitView.superview?.superview is NSButton {
+                    // Let the button/control handle it normally
+                } else {
+                    window.makeFirstResponder(nil)
+                }
             }
             return event
         }
@@ -468,7 +475,9 @@ class RichTextEditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     func insertText(_ text: String) {
-        textView?.insertText(text, replacementRange: textView?.selectedRange() ?? NSRange(location: 0, length: 0))
+        guard let tv = textView else { return }
+        tv.window?.makeFirstResponder(tv)
+        tv.insertText(text, replacementRange: tv.selectedRange())
     }
 
     // MARK: - Command handling for bullets
