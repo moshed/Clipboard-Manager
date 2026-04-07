@@ -2,8 +2,8 @@
 
 macOS menu bar clipboard history app.
 
-## IMPORTANT: After Building
-`/Applications/Clipboard Manager.app` is a **symlink** to the DerivedData build output. This preserves the binary identity across Xcode builds so Accessibility permission is NOT lost on relaunch. Just kill and reopen:
+## IMPORTANT: After Building — ALWAYS Quit and Reopen
+`/Applications/Clipboard Manager.app` is a **symlink** to the DerivedData build output. After every successful build, **always quit and reopen the app** so changes take effect:
 ```bash
 kill -9 $(pgrep -x "Clipboard Manager") 2>/dev/null; sleep 0.5 && open "/Applications/Clipboard Manager.app"
 ```
