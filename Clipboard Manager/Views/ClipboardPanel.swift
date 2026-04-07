@@ -62,7 +62,8 @@ class ClipboardPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
-        orderOut(nil)
+        // Let the view clear search text first; only dismiss if already clear
+        NotificationCenter.default.post(name: .panelEscapePressed, object: nil)
     }
 
     override func resignKey() {

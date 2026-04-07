@@ -18,17 +18,20 @@ private func debugLog(_ message: String) {
 class SnippetPasteData: NSObject {
     let content: String
     let rtfData: Data?
-    init(content: String, rtfData: Data?) {
+    let matchDestinationFont: Bool
+    init(content: String, rtfData: Data?, matchDestinationFont: Bool = true) {
         self.content = content
         self.rtfData = rtfData
+        self.matchDestinationFont = matchDestinationFont
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate?
 
     private var statusItem: NSStatusItem!
     private var panel: ClipboardPanel?
+    private var settingsWindow: NSWindow?
     private(set) var clipboardMonitor: ClipboardMonitor?
     private var hotkeyManager: HotkeyManager?
     private var modelContainer: ModelContainer!
@@ -138,13 +141,70 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openSettings() {
-        guard let panel = panel else { return }
-        if !panel.isVisible {
-            panel.centerOnActiveScreen()
-            panel.makeKeyAndOrderFront(nil)
+        openSettingsWindow()
+    }
+
+    func openSettingsWindow() {
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.setActivationPolicy(.regular)
+            return
         }
+
+        let settingsView = ScrollView {
+            SettingsView(onClearAll: { [weak self] in
+                guard let container = self?.modelContainer else { return }
+                let context = ModelContext(container)
+                let descriptor = FetchDescriptor<ClipboardEntry>()
+                if let entries = try? context.fetch(descriptor) {
+                    for entry in entries { context.delete(entry) }
+                    try? context.save()
+                }
+            })
+        }
+        .frame(minWidth: 420, idealWidth: 480, minHeight: 500, idealHeight: 600)
+        .modelContainer(modelContainer)
+
+        let hostingView = NSHostingView(rootView: settingsView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 600),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Clipboard Manager Settings"
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.delegate = self
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        NotificationCenter.default.post(name: .openSettings, object: nil)
+
+        // Show dock icon while settings is open
+        NSApp.setActivationPolicy(.regular)
+
+        settingsWindow = window
+
+        // Hide the SwiftUI-managed empty window that reappears when activation policy changes
+        DispatchQueue.main.async { [weak self] in
+            for w in NSApp.windows {
+                if w !== self?.settingsWindow && w !== self?.panel && w.className.contains("AppKitWindow") {
+                    w.orderOut(nil)
+                }
+            }
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if sender === settingsWindow {
+            sender.orderOut(nil)
+            settingsWindow = nil
+            NSApp.setActivationPolicy(.accessory)
+            return false  // Don't actually close — just hide, so app doesn't quit
+        }
+        return true
     }
 
     @objc private func relaunchApp() {
@@ -168,7 +228,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderOut(nil)
         } else {
             previousApp = NSWorkspace.shared.frontmostApplication
-            NotificationCenter.default.post(name: .dismissSettings, object: nil)
+
             panel.centerOnActiveScreen()
             panel.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -184,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderOut(nil)
         } else {
             previousApp = NSWorkspace.shared.frontmostApplication
-            NotificationCenter.default.post(name: .dismissSettings, object: nil)
+
             positionPanelBelowStatusItem()
             panel.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -248,7 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        pasteSnippetContent(snippet.content, rtfData: snippet.rtfData)
+        pasteSnippetContent(snippet.content, rtfData: snippet.rtfData, matchDestinationFont: snippet.matchDestinationFont)
     }
 
     private func showFolderMenu(folderID: UUID, context: ModelContext) {
@@ -265,7 +325,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let item = NSMenuItem(title: title, action: #selector(self?.folderMenuItemClicked(_:)), keyEquivalent: "")
                 item.target = self
                 // Store both content and rtfData
-                item.representedObject = SnippetPasteData(content: child.content, rtfData: child.rtfData)
+                item.representedObject = SnippetPasteData(content: child.content, rtfData: child.rtfData, matchDestinationFont: child.matchDestinationFont)
                 if let iconName = child.iconName, let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
                     img.isTemplate = true
                     item.image = img
@@ -279,17 +339,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                       styleMask: .borderless, backing: .buffered, defer: false)
             menuWindow.isReleasedWhenClosed = true
             menuWindow.orderFront(nil)
-            menu.popUp(positioning: nil, at: .zero, in: menuWindow.contentView)
+            menu.popUp(positioning: menu.items.first, at: .zero, in: menuWindow.contentView)
         }
     }
 
     @objc private func folderMenuItemClicked(_ sender: NSMenuItem) {
         if let data = sender.representedObject as? SnippetPasteData {
-            pasteSnippetContent(data.content, rtfData: data.rtfData)
+            pasteSnippetContent(data.content, rtfData: data.rtfData, matchDestinationFont: data.matchDestinationFont)
         }
     }
 
-    private func pasteSnippetContent(_ content: String, rtfData: Data? = nil) {
+    private func pasteSnippetContent(_ content: String, rtfData: Data? = nil, matchDestinationFont: Bool = true) {
         // Set a flag so the clipboard monitor ignores this change
         clipboardMonitor?.snippetPasteFlag = true
 
@@ -298,9 +358,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let savedClipboard = pb.string(forType: .string) ?? ""
         pb.clearContents()
 
-        if let rtfData,
+        let isTokenOnly = SnippetTokenResolver.isTokenOnly(content)
+
+        if let rtfData, !isTokenOnly, !matchDestinationFont,
            let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            // Resolve tokens in RTF
+            // Resolve tokens in RTF — preserves custom font/size
             let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
             for (range, replacement) in tokens.reversed() {
                 attrStr.replaceCharacters(in: range, with: replacement)
@@ -340,9 +402,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         debugLog("pasteSnippetFromPanel: savedClipboard=\"\(savedClipboard.prefix(60))\" snippet.content=\"\(snippet.content.prefix(60))\"")
         pb.clearContents()
 
-        if let rtfData = snippet.rtfData,
+        let isTokenOnly = SnippetTokenResolver.isTokenOnly(snippet.content)
+
+        if let rtfData = snippet.rtfData, !isTokenOnly, !snippet.matchDestinationFont,
            let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            // Resolve tokens in both RTF and plain text
+            // Resolve tokens in both RTF and plain text — preserves custom font/size
             let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
             debugLog("  RTF path: \(tokens.count) tokens found, attrStr=\"\(attrStr.string.prefix(60))\"")
             // Replace from end to start to preserve ranges
@@ -396,8 +460,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let openSettings = Notification.Name("openSettings")
-    static let dismissSettings = Notification.Name("dismissSettings")
+
     static let panelDidOpen = Notification.Name("panelDidOpen")
+    static let panelEscapePressed = Notification.Name("panelEscapePressed")
     static let snippetHotkeysChanged = Notification.Name("snippetHotkeysChanged")
     static let snippetExpandFolder = Notification.Name("snippetExpandFolder")
     static let snippetCollapseFolder = Notification.Name("snippetCollapseFolder")

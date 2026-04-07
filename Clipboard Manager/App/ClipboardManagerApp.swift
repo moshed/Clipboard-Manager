@@ -5,7 +5,7 @@ struct ClipboardManagerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // Empty window scene — app is driven by AppDelegate + NSPanel
+        // Minimal window scene — immediately hidden, app is driven by AppDelegate + NSPanel
         Window("", id: "hidden") {
             EmptyView()
         }
