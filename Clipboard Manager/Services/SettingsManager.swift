@@ -1,6 +1,23 @@
 import Foundation
 import Carbon
 
+struct CustomTransformation: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var pattern: String
+    var replacement: String
+    var isEnabled: Bool = true
+    var isBuiltIn: Bool = false
+}
+
+extension CustomTransformation {
+    static let builtInUppercase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "UPPERCASE", pattern: "", replacement: "", isBuiltIn: true)
+    static let builtInLowercase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "lowercase", pattern: "", replacement: "", isBuiltIn: true)
+    static let builtInCapitalCase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, name: "Capital Case", pattern: "", replacement: "", isBuiltIn: true)
+
+    static let defaultBuiltIns: [CustomTransformation] = [builtInUppercase, builtInLowercase, builtInCapitalCase]
+}
+
 struct KeyCombo: Codable, Equatable {
     var keyCode: UInt32
     var modifiers: UInt32
@@ -146,6 +163,41 @@ class SettingsManager: ObservableObject {
         didSet { saveOptionalKeyCombo(expandShortcut, forKey: "expandShortcut") }
     }
 
+
+    @Published var transformShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(transformShortcut, forKey: "transformShortcut") }
+    }
+
+    @Published var customTransformations: [CustomTransformation] {
+        didSet {
+            if let data = try? JSONEncoder().encode(customTransformations) {
+                UserDefaults.standard.set(data, forKey: "customTransformations")
+            }
+        }
+    }
+
+    @Published var pasteOrderedShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(pasteOrderedShortcut, forKey: "pasteOrderedShortcut") }
+    }
+
+    /// "newline", "comma", "tab", "custom"
+    @Published var multiPasteSeparator: String {
+        didSet { UserDefaults.standard.set(multiPasteSeparator, forKey: "multiPasteSeparator") }
+    }
+
+    @Published var multiPasteCustomSeparator: String {
+        didSet { UserDefaults.standard.set(multiPasteCustomSeparator, forKey: "multiPasteCustomSeparator") }
+    }
+
+    var resolvedSeparator: String {
+        switch multiPasteSeparator {
+        case "comma": return ", "
+        case "tab": return "\t"
+        case "custom": return multiPasteCustomSeparator
+        default: return "\n"
+        }
+    }
+
     var onToggleShortcutChanged: (() -> Void)?
     var onDismissSettingChanged: (() -> Void)?
 
@@ -170,6 +222,23 @@ class SettingsManager: ObservableObject {
         self.copyFormattedShortcut = SettingsManager.loadKeyCombo(forKey: "copyFormattedShortcut") ?? .defaultCopyFormatted
         self.deleteShortcut = SettingsManager.loadKeyCombo(forKey: "deleteShortcut") ?? .defaultDelete
         self.expandShortcut = SettingsManager.loadKeyCombo(forKey: "expandShortcut")
+        self.transformShortcut = SettingsManager.loadKeyCombo(forKey: "transformShortcut")
+        if let data = UserDefaults.standard.data(forKey: "customTransformations"),
+           let transforms = try? JSONDecoder().decode([CustomTransformation].self, from: data) {
+            // Ensure built-ins exist (for existing users upgrading)
+            var list = transforms
+            for builtIn in CustomTransformation.defaultBuiltIns {
+                if !list.contains(where: { $0.id == builtIn.id }) {
+                    list.insert(builtIn, at: 0)
+                }
+            }
+            self.customTransformations = list
+        } else {
+            self.customTransformations = CustomTransformation.defaultBuiltIns
+        }
+        self.pasteOrderedShortcut = SettingsManager.loadKeyCombo(forKey: "pasteOrderedShortcut")
+        self.multiPasteSeparator = UserDefaults.standard.string(forKey: "multiPasteSeparator") ?? "newline"
+        self.multiPasteCustomSeparator = UserDefaults.standard.string(forKey: "multiPasteCustomSeparator") ?? " | "
     }
 
     private func saveOptionalKeyCombo(_ combo: KeyCombo?, forKey key: String) {

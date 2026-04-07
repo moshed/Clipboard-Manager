@@ -17,14 +17,15 @@ struct SettingsView: View {
             HStack(spacing: 2) {
                 settingsTabButton(0, icon: "rectangle.3.group", label: "General")
                 settingsTabButton(1, icon: "command", label: "Shortcuts")
-                settingsTabButton(2, icon: "minus.circle.fill", label: "Excluded Apps")
+                settingsTabButton(2, icon: "minus.circle.fill", label: "Excluded")
+                settingsTabButton(3, icon: "wand.and.stars", label: "Transform")
             }
-            .padding(2)
+            .padding(4)
             .background(Color.primary.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .padding(.bottom, 4)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
 
             // Tab content
             switch settingsTab {
@@ -32,8 +33,10 @@ struct SettingsView: View {
                 generalTab
             case 1:
                 shortcutsTab
-            default:
+            case 2:
                 ExcludedAppsView(settings: settings)
+            default:
+                TransformationsSettingsView(settings: settings)
             }
         }
     }
@@ -44,21 +47,22 @@ struct SettingsView: View {
         return Button {
             settingsTab = tab
         } label: {
-            HStack(spacing: 4) {
+            VStack(spacing: 3) {
                 if display != "textOnly" {
                     Image(systemName: icon)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                 }
                 if display != "iconOnly" {
                     Text(label)
                         .font(.system(size: 11, weight: .medium))
                 }
             }
-            .padding(.horizontal, display == "iconOnly" ? 8 : 10)
-            .padding(.vertical, 5)
+            .frame(minWidth: display == "iconOnly" ? 44 : 70)
+            .padding(.horizontal, display == "iconOnly" ? 8 : 12)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color(nsColor: .controlAccentColor).opacity(0.2) : Color.clear)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isActive ? Color(nsColor: .controlAccentColor).opacity(0.15) : Color.clear)
             )
             .foregroundStyle(isActive ? Color(nsColor: .controlAccentColor) : .secondary)
         }
@@ -133,9 +137,7 @@ struct GeneralSettingsView: View {
                 .padding(.leading, 20)
             }
 
-            HStack {
-                Text("Toolbar Display")
-                Spacer()
+            settingsRow("Toolbar Display") {
                 Picker("", selection: $settings.toolbarDisplay) {
                     Text("Icons & Text").tag("both")
                     Text("Icons Only").tag("iconOnly")
@@ -143,24 +145,42 @@ struct GeneralSettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 140)
+                .frame(width: 150)
             }
 
-            HStack {
-                Text("Paste on Mouse")
-                Spacer()
+            settingsRow("Paste on Mouse") {
                 Picker("", selection: $settings.mouseAction) {
                     Text("Single Click").tag("singleClick")
                     Text("Double Click").tag("doubleClick")
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 140)
+                .frame(width: 150)
             }
 
-            HStack {
-                Text("Snippet Preview Lines")
-                Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                settingsRow("Multi-Paste Separator") {
+                    Picker("", selection: $settings.multiPasteSeparator) {
+                        Text("New Line").tag("newline")
+                        Text("Comma").tag("comma")
+                        Text("Tab").tag("tab")
+                        Text("Custom").tag("custom")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 150)
+                }
+
+                if settings.multiPasteSeparator == "custom" {
+                    settingsRow("Custom Separator") {
+                        ClearableTextField(text: $settings.multiPasteCustomSeparator, placeholder: " | ")
+                            .frame(width: 150)
+                    }
+                    .padding(.leading, 20)
+                }
+            }
+
+            settingsRow("Snippet Preview Lines") {
                 Picker("", selection: $settings.snippetPreviewLines) {
                     Text("None").tag(0)
                     Text("1").tag(1)
@@ -170,22 +190,17 @@ struct GeneralSettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 140)
+                .frame(width: 150)
             }
 
-            HStack {
-                Text("Max History")
-                Spacer()
+            settingsRow("Max History Entries") {
                 ClearableTextField(text: $historyText, placeholder: "1000")
-                    .frame(width: 80)
+                    .frame(width: 150)
                     .onChange(of: historyText) { _, newValue in
                         if let val = Int(newValue), val >= 10 {
                             settings.maxHistoryCount = val
                         }
                     }
-                Text("entries")
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 12))
             }
 
             Divider()
@@ -220,6 +235,14 @@ struct GeneralSettingsView: View {
             historyText = "\(settings.maxHistoryCount)"
         }
     }
+
+    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            content()
+        }
+    }
 }
 
 struct ShortcutsSettingsView: View {
@@ -240,7 +263,21 @@ struct ShortcutsSettingsView: View {
                 .font(.system(size: 14, weight: .bold))
 
             OptionalShortcutRow(label: "Copy Plain Text", keyCombo: $settings.copyPlainShortcut, requireModifier: false)
-            OptionalShortcutRow(label: "Copy with Formatting", keyCombo: $settings.copyFormattedShortcut, requireModifier: false)
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Secondary Copy", keyCombo: $settings.copyFormattedShortcut, requireModifier: false)
+                Text("Copies with formatting, or the path/address for files and images.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Paste in Selection Order", keyCombo: $settings.pasteOrderedShortcut, requireModifier: false)
+                Text("Pastes multiple selected items in the order they were clicked.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            OptionalShortcutRow(label: "Transform", keyCombo: $settings.transformShortcut, requireModifier: false)
             OptionalShortcutRow(label: "Delete", keyCombo: $settings.deleteShortcut, requireModifier: false)
             OptionalShortcutRow(label: "Preview", keyCombo: $settings.expandShortcut, requireModifier: false)
             OptionalShortcutRow(label: "Focus Search", keyCombo: $settings.searchShortcut, requireModifier: false)
@@ -406,6 +443,227 @@ extension NSEvent.ModifierFlags {
     }
 }
 
+// MARK: - Transformations Settings
+
+struct TransformationsSettingsView: View {
+    @ObservedObject var settings: SettingsManager
+    @State private var newName = ""
+    @State private var newPattern = ""
+    @State private var newReplacement = ""
+    @State private var testInput = ""
+    @State private var editingID: UUID?
+
+    private var testResult: String {
+        guard let regex = try? NSRegularExpression(pattern: newPattern) else {
+            return "Invalid regex"
+        }
+        let range = NSRange(testInput.startIndex..., in: testInput)
+        let matches = regex.matches(in: testInput, range: range)
+        var result = testInput
+        for match in matches.reversed() {
+            guard match.range.length > 0 else { continue }
+            let replacement = regex.replacementString(for: match, in: result, offset: 0, template: newReplacement)
+            let start = result.index(result.startIndex, offsetBy: match.range.location)
+            let end = result.index(start, offsetBy: match.range.length)
+            result.replaceSubrange(start..<end, with: replacement)
+        }
+        return result
+    }
+
+    private var testResultIsError: Bool {
+        (try? NSRegularExpression(pattern: newPattern)) == nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Custom Transformations")
+                .font(.system(size: 14, weight: .bold))
+
+            Text("Define regex-based text transformations. Use $1, $2 for capture groups in the replacement.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            List {
+                ForEach(settings.customTransformations) { transform in
+                    transformRow(transform)
+                }
+                .onMove { from, to in
+                    settings.customTransformations.move(fromOffsets: from, toOffset: to)
+                }
+            }
+            .listStyle(.plain)
+            .frame(minHeight: CGFloat(settings.customTransformations.count * 36 + 8), maxHeight: 300)
+
+            Divider()
+
+            HStack {
+                Text(editingID != nil ? "Editing" : "Add New")
+                    .font(.system(size: 12, weight: .semibold))
+                if editingID != nil {
+                    Button("Cancel") { clearForm() }
+                        .font(.system(size: 11))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            labeledField("Name", field: ClearableTextField(text: $newName, placeholder: ""))
+            labeledField("Pattern", field: MonoTextField(text: $newPattern, placeholder: ""))
+            labeledField("Replace", field: MonoTextField(text: $newReplacement, placeholder: ""))
+            labeledField("Test", field: ClearableTextField(text: $testInput, placeholder: ""))
+
+            if !testInput.isEmpty && !newPattern.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Result")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 55, alignment: .trailing)
+                    Text(testResult)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(testResultIsError ? .red : .primary)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.03))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+
+            Button {
+                saveNewTransform()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 12))
+                    Text(editingID != nil ? "Update" : "Save")
+                        .font(.system(size: 13, weight: .medium))
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(newName.isEmpty || newPattern.isEmpty)
+            .keyboardShortcut(.return, modifiers: [])
+        }
+        .padding(20)
+    }
+
+    private func saveNewTransform() {
+        guard !newName.isEmpty, !newPattern.isEmpty else { return }
+        if let id = editingID,
+           let idx = settings.customTransformations.firstIndex(where: { $0.id == id }) {
+            settings.customTransformations[idx].name = newName
+            settings.customTransformations[idx].pattern = newPattern
+            settings.customTransformations[idx].replacement = newReplacement
+        } else {
+            let t = CustomTransformation(name: newName, pattern: newPattern, replacement: newReplacement)
+            settings.customTransformations.append(t)
+        }
+        clearForm()
+    }
+
+    private func clearForm() {
+        editingID = nil
+        newName = ""
+        newPattern = ""
+        newReplacement = ""
+        testInput = ""
+    }
+
+    private func transformRow(_ transform: CustomTransformation) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Toggle("", isOn: Binding(
+                get: { transform.isEnabled },
+                set: { newValue in
+                    if let idx = settings.customTransformations.firstIndex(where: { $0.id == transform.id }) {
+                        settings.customTransformations[idx].isEnabled = newValue
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .controlSize(.mini)
+
+            Text(transform.name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(transform.isEnabled ? .primary : .secondary)
+
+            Spacer()
+
+            if transform.isBuiltIn {
+                Text("Built-in")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            } else {
+                Button {
+                    editingID = transform.id
+                    newName = transform.name
+                    newPattern = transform.pattern
+                    newReplacement = transform.replacement
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    if editingID == transform.id { clearForm() }
+                    settings.customTransformations.removeAll { $0.id == transform.id }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 2)
+        .listRowBackground(editingID == transform.id ? Color.accentColor.opacity(0.1) : Color.clear)
+    }
+
+    private func labeledField<F: View>(_ label: String, field: F) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 55, alignment: .trailing)
+            field
+        }
+    }
+
+}
+
+// MARK: - Monospaced Text Field
+
+struct MonoTextField: View {
+    @Binding var text: String
+    var placeholder: String = ""
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, design: .monospaced))
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.primary.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 // MARK: - Clearable Text Field
 
 struct ClearableTextField: View {
@@ -464,6 +722,8 @@ struct BackupData: Codable {
         var toolbarDisplay: String?
         var mouseAction: String?
         var snippetPreviewLines: Int?
+        var multiPasteSeparator: String?
+        var multiPasteCustomSeparator: String?
         var excelCleanup: Bool?
         var excelCopyAsText: Bool?
         var excelCleanNonContiguous: Bool?
@@ -567,6 +827,8 @@ struct SnippetBackupView: View {
             toolbarDisplay: sm.toolbarDisplay,
             mouseAction: sm.mouseAction,
             snippetPreviewLines: sm.snippetPreviewLines,
+            multiPasteSeparator: sm.multiPasteSeparator,
+            multiPasteCustomSeparator: sm.multiPasteCustomSeparator,
             excelCleanup: sm.excelCleanup,
             excelCopyAsText: sm.excelCopyAsText,
             excelCleanNonContiguous: sm.excelCleanNonContiguous,
@@ -631,6 +893,8 @@ struct SnippetBackupView: View {
                 if let v = s.toolbarDisplay { sm.toolbarDisplay = v }
                 if let v = s.mouseAction { sm.mouseAction = v }
                 if let v = s.snippetPreviewLines { sm.snippetPreviewLines = v }
+                if let v = s.multiPasteSeparator { sm.multiPasteSeparator = v }
+                if let v = s.multiPasteCustomSeparator { sm.multiPasteCustomSeparator = v }
                 if let v = s.excelCleanup { sm.excelCleanup = v }
                 if let v = s.excelCopyAsText { sm.excelCopyAsText = v }
                 if let v = s.excelCleanNonContiguous { sm.excelCleanNonContiguous = v }
