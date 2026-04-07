@@ -30,6 +30,7 @@ struct SnippetEditorView: View {
     @State private var isFolder: Bool = false
     @State private var iconName: String?
     @State private var showIconPicker = false
+    @State private var matchDestinationFont: Bool = true
     @State private var attributedContent = NSMutableAttributedString()
     @State private var editorCoordinator: RichTextEditorCoordinator?
 
@@ -77,8 +78,20 @@ struct SnippetEditorView: View {
                 }
 
                 if !isFolder {
-                    // Formatting toolbar
-                    FormatToolbar(coordinator: editorCoordinator)
+                    // Font mode toggle + formatting toolbar
+                    HStack(spacing: 8) {
+                        Picker("", selection: $matchDestinationFont) {
+                            Text("Match Destination Font").tag(true)
+                            Text("Custom Font").tag(false)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                    }
+
+                    if !matchDestinationFont {
+                        FormatToolbar(coordinator: editorCoordinator)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -189,6 +202,7 @@ struct SnippetEditorView: View {
                 isFolder = s.isFolder
                 selectedFolderID = s.folderID
                 iconName = s.iconName
+                matchDestinationFont = s.matchDestinationFont
                 snippetDebugLog("onAppear EDIT: content=\"\(s.content.prefix(40))\" rtf=\(s.rtfData?.count ?? 0)b")
                 if let rtf = s.rtfData, let attr = NSAttributedString(rtf: rtf, documentAttributes: nil) {
                     snippetDebugLog("  loaded RTF attr.length=\(attr.length)")
@@ -259,6 +273,7 @@ struct SnippetEditorView: View {
                 s.content = plainText
                 s.rtfData = rtf
                 s.folderID = selectedFolderID
+                s.matchDestinationFont = matchDestinationFont
             }
             snippetDebugLog("  UPDATED id=\(s.id) content=\"\(s.content.prefix(40))\" rtf=\(s.rtfData?.count ?? 0)b")
         } else {
@@ -266,6 +281,7 @@ struct SnippetEditorView: View {
             s.keyCombo = keyCombo
             s.iconName = iconName
             s.rtfData = rtf
+            s.matchDestinationFont = matchDestinationFont
             modelContext.insert(s)
             snippetDebugLog("  CREATED id=\(s.id) content=\"\(s.content.prefix(40))\"")
         }
