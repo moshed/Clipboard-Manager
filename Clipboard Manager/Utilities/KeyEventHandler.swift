@@ -5,8 +5,12 @@ import Carbon
 struct KeyEventHandlerView: NSViewRepresentable {
     var onCopyPlain: () -> Void
     var onCopyFormatted: () -> Void
+    var onPasteOrdered: () -> Void = {}
+    var onTransform: () -> Void = {}
     var onDownArrow: () -> Void
     var onUpArrow: () -> Void
+    var onShiftDownArrow: () -> Void = {}
+    var onShiftUpArrow: () -> Void = {}
     var onRightArrow: () -> Void = {}
     var onLeftArrow: () -> Void = {}
     var onExpand: () -> Void
@@ -22,8 +26,12 @@ struct KeyEventHandlerView: NSViewRepresentable {
         let view = KeyCaptureView()
         view.onCopyPlain = onCopyPlain
         view.onCopyFormatted = onCopyFormatted
+        view.onPasteOrdered = onPasteOrdered
+        view.onTransform = onTransform
         view.onDownArrow = onDownArrow
         view.onUpArrow = onUpArrow
+        view.onShiftDownArrow = onShiftDownArrow
+        view.onShiftUpArrow = onShiftUpArrow
         view.onRightArrow = onRightArrow
         view.onLeftArrow = onLeftArrow
         view.onExpand = onExpand
@@ -40,8 +48,12 @@ struct KeyEventHandlerView: NSViewRepresentable {
     func updateNSView(_ nsView: KeyCaptureView, context: Context) {
         nsView.onCopyPlain = onCopyPlain
         nsView.onCopyFormatted = onCopyFormatted
+        nsView.onPasteOrdered = onPasteOrdered
+        nsView.onTransform = onTransform
         nsView.onDownArrow = onDownArrow
         nsView.onUpArrow = onUpArrow
+        nsView.onShiftDownArrow = onShiftDownArrow
+        nsView.onShiftUpArrow = onShiftUpArrow
         nsView.onRightArrow = onRightArrow
         nsView.onLeftArrow = onLeftArrow
         nsView.onExpand = onExpand
@@ -58,8 +70,12 @@ struct KeyEventHandlerView: NSViewRepresentable {
 class KeyCaptureView: NSView {
     var onCopyPlain: (() -> Void)?
     var onCopyFormatted: (() -> Void)?
+    var onPasteOrdered: (() -> Void)?
+    var onTransform: (() -> Void)?
     var onDownArrow: (() -> Void)?
     var onUpArrow: (() -> Void)?
+    var onShiftDownArrow: (() -> Void)?
+    var onShiftUpArrow: (() -> Void)?
     var onRightArrow: (() -> Void)?
     var onLeftArrow: (() -> Void)?
     var onExpand: (() -> Void)?
@@ -133,13 +149,21 @@ class KeyCaptureView: NSView {
             return false
         }
 
-        // Up/Down arrows always navigate clips; Left/Right only outside text fields
+        // Up/Down arrows always navigate clips; Shift extends selection
         switch Int(keyCode) {
         case kVK_DownArrow:
-            onDownArrow?()
+            if flags.contains(.shift) {
+                onShiftDownArrow?()
+            } else {
+                onDownArrow?()
+            }
             return true
         case kVK_UpArrow:
-            onUpArrow?()
+            if flags.contains(.shift) {
+                onShiftUpArrow?()
+            } else {
+                onUpArrow?()
+            }
             return true
         case kVK_RightArrow:
             if !inTextField {
@@ -158,6 +182,20 @@ class KeyCaptureView: NSView {
         // Copy/delete shortcuts work even in text fields, BUT only if they
         // use a modifier beyond just Shift (otherwise Enter/Delete are needed for typing)
         let hasRealModifier = mods & UInt32(cmdKey | optionKey | controlKey) != 0
+
+        if let combo = settings.transformShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+            if !inTextField || hasRealModifier {
+                onTransform?()
+                return true
+            }
+        }
+
+        if let combo = settings.pasteOrderedShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+            if !inTextField || hasRealModifier {
+                onPasteOrdered?()
+                return true
+            }
+        }
 
         if let combo = settings.copyFormattedShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
             if !inTextField || hasRealModifier {

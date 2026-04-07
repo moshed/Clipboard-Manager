@@ -9,6 +9,7 @@ struct ClipboardListView: View {
 
     @State private var selectedEntry: ClipboardEntry?
     @State private var selectedIDs: Set<UUID> = []
+    @State private var selectionOrder: [UUID] = []
     @State private var popoverEntry: ClipboardEntry?
     @State private var searchText = ""
     @State private var dateFilter = DateFilter.all
@@ -18,10 +19,11 @@ struct ClipboardListView: View {
     @State private var showFilters = false
     @State private var viewMode: ViewMode = .clipboard
     @State private var selectedSnippetID: UUID?
+    @State private var hoveredEntryID: UUID?
     @FocusState private var isSearchFocused: Bool
 
     private enum ViewMode: Int {
-        case clipboard = 0, snippets = 1, settings = 2
+        case clipboard = 0, snippets = 1
     }
 
     private var filteredEntries: [ClipboardEntry] {
@@ -79,8 +81,6 @@ struct ClipboardListView: View {
                 SnippetListView(selectedSnippetID: $selectedSnippetID) { snippet in
                     AppDelegate.shared?.pasteSnippetFromPanel(snippet)
                 }
-            case .settings:
-                settingsContent
             }
         }
         .frame(minWidth: 320, idealWidth: 420, minHeight: 400, idealHeight: 520)
@@ -88,14 +88,19 @@ struct ClipboardListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .focusEffectDisabled()
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
-            viewMode = .settings
+            AppDelegate.shared?.openSettingsWindow()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .dismissSettings)) { _ in
-            if viewMode == .settings { viewMode = .clipboard }
+        .onReceive(NotificationCenter.default.publisher(for: .panelEscapePressed)) { _ in
+            if !searchText.isEmpty {
+                searchText = ""
+            } else {
+                NSApp.keyWindow?.orderOut(nil)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .panelDidOpen)) { _ in
             selectedEntry = filteredEntries.first
             selectedIDs = Set([filteredEntries.first?.id].compactMap { $0 })
+            selectionOrder = [filteredEntries.first?.id].compactMap { $0 }
             popoverEntry = nil
         }
         .background(KeyEventHandlerView(
@@ -121,6 +126,17 @@ struct ClipboardListView: View {
                     }
                 }
             },
+            onPasteOrdered: {
+                guard viewMode == .clipboard else { return }
+                let entries = selectedEntriesInOrder
+                guard !entries.isEmpty else { return }
+                copyOrderedMultiple(entries)
+                AppDelegate.shared?.pasteIntoPreviousApp()
+            },
+            onTransform: {
+                guard viewMode == .clipboard, let entry = selectedEntry, transformableText(for: entry) != nil else { return }
+                showTransformMenu(for: entry)
+            },
             onDownArrow: {
                 if viewMode == .snippets {
                     moveSnippetSelection(by: 1)
@@ -134,6 +150,12 @@ struct ClipboardListView: View {
                 } else if viewMode == .clipboard {
                     moveSelection(by: -1)
                 }
+            },
+            onShiftDownArrow: {
+                if viewMode == .clipboard { extendSelection(by: 1) }
+            },
+            onShiftUpArrow: {
+                if viewMode == .clipboard { extendSelection(by: -1) }
             },
             onRightArrow: {
                 if viewMode == .snippets {
@@ -171,6 +193,7 @@ struct ClipboardListView: View {
                 popoverEntry = nil
                 selectedEntry = nextEntry
                 selectedIDs = nextEntry.map { Set([$0.id]) } ?? []
+                selectionOrder = [nextEntry?.id].compactMap { $0 }
                 for entry in toDelete {
                     modelContext.delete(entry)
                 }
@@ -208,18 +231,10 @@ struct ClipboardListView: View {
                 }
             },
             onToggleTab: {
-                switch viewMode {
-                case .clipboard: viewMode = .snippets
-                case .snippets: viewMode = .settings
-                case .settings: viewMode = .clipboard
-                }
+                viewMode = viewMode == .clipboard ? .snippets : .clipboard
             },
             onToggleTabBackward: {
-                switch viewMode {
-                case .clipboard: viewMode = .settings
-                case .snippets: viewMode = .clipboard
-                case .settings: viewMode = .snippets
-                }
+                viewMode = viewMode == .clipboard ? .snippets : .clipboard
             }
         ))
     }
@@ -254,7 +269,6 @@ struct ClipboardListView: View {
         HStack(spacing: 2) {
             tabButton(.clipboard, icon: "doc.on.clipboard", label: "Clipboard")
             tabButton(.snippets, icon: "star.fill", label: "Snippets")
-            tabButton(.settings, icon: "gear", label: "Settings")
         }
         .padding(2)
         .background(Color.primary.opacity(0.06))
@@ -267,18 +281,18 @@ struct ClipboardListView: View {
         return Button {
             viewMode = mode
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 if display != "textOnly" {
                     Image(systemName: icon)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                 }
                 if display != "iconOnly" {
                     Text(label)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                 }
             }
-            .padding(.horizontal, display == "iconOnly" ? 8 : 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, display == "iconOnly" ? 10 : 12)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isActive ? Color(nsColor: .controlAccentColor).opacity(0.2) : Color.clear)
@@ -292,19 +306,6 @@ struct ClipboardListView: View {
 
     private var clipboardContent: some View {
         clipsList
-    }
-
-    // MARK: - Settings Content
-
-    private var settingsContent: some View {
-        ScrollView {
-            SettingsView(onClearAll: {
-                for entry in allEntries {
-                    modelContext.delete(entry)
-                }
-            })
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Clips List
@@ -340,11 +341,21 @@ struct ClipboardListView: View {
 
         VStack(spacing: 0) {
             ClipboardRowView(entry: entry, isSelected: isSelected)
-                .overlay {
-                    TwoFingerTapView {
-                        selectedEntry = entry
-                        popoverEntry = popoverEntry?.id == entry.id ? nil : entry
+                .background(isSelected ? AnchorViewRepresentable() : nil)
+                .overlay(alignment: .trailing) {
+                    ZStack(alignment: .trailing) {
+                        TwoFingerTapView {
+                            selectedEntry = entry
+                            popoverEntry = popoverEntry?.id == entry.id ? nil : entry
+                        }
+                        if transformableText(for: entry) != nil && hoveredEntryID == entry.id {
+                            transformMenuButton(for: entry)
+                                .padding(.trailing, 6)
+                        }
                     }
+                }
+                .onHover { hovering in
+                    hoveredEntryID = hovering ? entry.id : nil
                 }
                 .onTapGesture(count: 2) {
                     if settings.mouseAction == "doubleClick" {
@@ -402,6 +413,10 @@ struct ClipboardListView: View {
             Button("Copy Path  (\(settings.copyFormattedShortcut?.displayString ?? "—"))") {
                 copyString(paths.joined(separator: "\n"), for: entry)
             }
+            Button("Copy Path in Backticks") {
+                let backticked = paths.map { "`\($0)`" }.joined(separator: "\n")
+                copyString(backticked, for: entry)
+            }
         } else {
             Button("Copy Formatted  (\(settings.copyFormattedShortcut?.displayString ?? "—"))") { copyFormatted(entry) }
         }
@@ -431,11 +446,13 @@ struct ClipboardListView: View {
         if command {
             if selectedIDs.contains(entry.id) {
                 selectedIDs.remove(entry.id)
+                selectionOrder.removeAll { $0 == entry.id }
                 if selectedEntry?.id == entry.id {
                     selectedEntry = filteredEntries.first(where: { selectedIDs.contains($0.id) })
                 }
             } else {
                 selectedIDs.insert(entry.id)
+                selectionOrder.append(entry.id)
                 selectedEntry = entry
             }
         } else if shift, let anchor = selectedEntry {
@@ -444,10 +461,12 @@ struct ClipboardListView: View {
                let clickIdx = entries.firstIndex(where: { $0.id == entry.id }) {
                 let range = min(anchorIdx, clickIdx)...max(anchorIdx, clickIdx)
                 selectedIDs = Set(entries[range].map(\.id))
+                selectionOrder = entries[range].map(\.id)
             }
         } else {
             selectedEntry = entry
             selectedIDs = [entry.id]
+            selectionOrder = [entry.id]
         }
         popoverEntry = nil
     }
@@ -547,20 +566,80 @@ struct ClipboardListView: View {
         return entries.filter { selectedIDs.contains($0.id) }
     }
 
+    /// Entries in the order they were selected (for secondary copy)
+    private var selectedEntriesInOrder: [ClipboardEntry] {
+        let entryMap = Dictionary(uniqueKeysWithValues: filteredEntries.map { ($0.id, $0) })
+        var ordered = selectionOrder.compactMap { entryMap[$0] }
+        // Add any selected entries not in the order list (e.g. from shift-select)
+        let orderedIDs = Set(ordered.map(\.id))
+        let remaining = filteredEntries.filter { selectedIDs.contains($0.id) && !orderedIDs.contains($0.id) }
+        ordered.append(contentsOf: remaining)
+        return ordered
+    }
+
     // MARK: - Actions
+
+    /// Build pasteboard items for an entry (one per file path, or one for image/text)
+    private func pasteboardItems(for entry: ClipboardEntry) -> [NSPasteboardItem] {
+        if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+            var items: [NSPasteboardItem] = []
+            for (i, path) in paths.enumerated() {
+                let item = NSPasteboardItem()
+                if FileManager.default.fileExists(atPath: path) {
+                    item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+                }
+                // Add image data to first item for inline paste support
+                if i == 0, let data = entry.imageData {
+                    item.setData(data, forType: .png)
+                    if let rep = NSBitmapImageRep(data: data),
+                       let tiff = rep.representation(using: .tiff, properties: [:]) {
+                        item.setData(tiff, forType: .tiff)
+                    }
+                }
+                items.append(item)
+            }
+            return items
+        } else if let imageData = entry.imageData, entry.contentType == .image || entry.contentType == .screenshot {
+            let item = NSPasteboardItem()
+            item.setData(imageData, forType: .png)
+            if let rep = NSBitmapImageRep(data: imageData),
+               let tiff = rep.representation(using: .tiff, properties: [:]) {
+                item.setData(tiff, forType: .tiff)
+            }
+            return [item]
+        } else {
+            let item = NSPasteboardItem()
+            if let text = entry.textContent ?? entry.ocrText {
+                item.setString(text, forType: .string)
+            }
+            return [item]
+        }
+    }
+
+    /// Whether an entry carries non-text data (image or file) that needs per-item pasteboard items
+    private func isNonTextEntry(_ entry: ClipboardEntry) -> Bool {
+        entry.contentType == .image || entry.contentType == .screenshot ||
+        (entry.contentType == .file && (entry.imageData != nil || entry.filePaths != nil))
+    }
 
     private func copyPlainMultiple(_ entries: [ClipboardEntry]) {
         if entries.count == 1 {
             copyPlain(entries[0])
             return
         }
-        let combined = entries.compactMap { entry -> String? in
-            entry.textContent ?? entry.ocrText
-        }.joined(separator: "\n")
         AppDelegate.shared?.clipboardMonitor?.selfCopiedEntryID = entries.first?.id
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(combined, forType: .string)
+
+        if entries.contains(where: { isNonTextEntry($0) }) {
+            pb.writeObjects(entries.flatMap { pasteboardItems(for: $0) })
+        } else {
+            let separator = settings.resolvedSeparator
+            let combined = entries.compactMap { entry -> String? in
+                entry.textContent ?? entry.ocrText
+            }.joined(separator: separator)
+            pb.setString(combined, forType: .string)
+        }
         if let first = entries.first { showCopiedFeedback(first) }
     }
 
@@ -569,14 +648,72 @@ struct ClipboardListView: View {
             copyFormatted(entries[0])
             return
         }
-        copyPlainMultiple(entries)
+        AppDelegate.shared?.clipboardMonitor?.selfCopiedEntryID = entries.first?.id
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        if entries.contains(where: { isNonTextEntry($0) }) {
+            pb.writeObjects(entries.flatMap { pasteboardItems(for: $0) })
+        } else {
+            let separator = settings.resolvedSeparator
+            let combined = entries.compactMap { entry -> String? in
+                if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+                    return paths.joined(separator: separator)
+                } else if (entry.contentType == .image || entry.contentType == .screenshot), let url = entry.sourceURL {
+                    return url
+                }
+                return entry.textContent ?? entry.ocrText
+            }.joined(separator: separator)
+            pb.setString(combined, forType: .string)
+        }
+        if let first = entries.first { showCopiedFeedback(first) }
+    }
+
+    /// Paste multiple items in the order they were selected
+    private func copyOrderedMultiple(_ entries: [ClipboardEntry]) {
+        if entries.count == 1 {
+            copyPlain(entries[0])
+            return
+        }
+        AppDelegate.shared?.clipboardMonitor?.selfCopiedEntryID = entries.first?.id
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        if entries.contains(where: { isNonTextEntry($0) }) {
+            pb.writeObjects(entries.flatMap { pasteboardItems(for: $0) })
+        } else {
+            let separator = settings.resolvedSeparator
+            let combined = entries.compactMap { entry -> String? in
+                entry.textContent ?? entry.ocrText
+            }.joined(separator: separator)
+            pb.setString(combined, forType: .string)
+        }
+        if let first = entries.first { showCopiedFeedback(first) }
     }
 
     private func copyPlain(_ entry: ClipboardEntry) {
         AppDelegate.shared?.clipboardMonitor?.selfCopiedEntryID = entry.id
         let pb = NSPasteboard.general
         pb.clearContents()
-        if entry.contentType == .image || entry.contentType == .screenshot {
+        if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+            // Reconstruct original pasteboard: file URLs + image data for inline paste
+            var items: [NSPasteboardItem] = []
+            for (i, path) in paths.enumerated() {
+                let item = NSPasteboardItem()
+                if FileManager.default.fileExists(atPath: path) {
+                    item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+                }
+                if i == 0, let data = entry.imageData {
+                    item.setData(data, forType: .png)
+                    if let rep = NSBitmapImageRep(data: data),
+                       let tiff = rep.representation(using: .tiff, properties: [:]) {
+                        item.setData(tiff, forType: .tiff)
+                    }
+                }
+                items.append(item)
+            }
+            pb.writeObjects(items)
+        } else if entry.contentType == .image || entry.contentType == .screenshot {
             if let data = entry.imageData {
                 copyImageToPasteboard(data, pasteboard: pb)
             }
@@ -589,11 +726,9 @@ struct ClipboardListView: View {
     }
 
     private func copyImageToPasteboard(_ pngData: Data, pasteboard: NSPasteboard) {
-        guard let image = NSImage(data: pngData) else {
-            pasteboard.setData(pngData, forType: .png)
-            return
-        }
-        if let tiff = image.tiffRepresentation {
+        // Use NSBitmapImageRep directly to avoid NSImage DPI changes on Retina
+        if let rep = NSBitmapImageRep(data: pngData),
+           let tiff = rep.representation(using: .tiff, properties: [:]) {
             pasteboard.setData(tiff, forType: .tiff)
         }
         pasteboard.setData(pngData, forType: .png)
@@ -645,13 +780,31 @@ struct ClipboardListView: View {
         guard !entries.isEmpty else { return }
         if let current = selectedEntry,
            let currentIndex = entries.firstIndex(where: { $0.id == current.id }) {
-            let newIndex = min(max(currentIndex + offset, 0), entries.count - 1)
+            let raw = currentIndex + offset
+            let newIndex = ((raw % entries.count) + entries.count) % entries.count
             selectedEntry = entries[newIndex]
             selectedIDs = [entries[newIndex].id]
+            selectionOrder = [entries[newIndex].id]
         } else {
             let entry = offset > 0 ? entries.first : entries.last
             selectedEntry = entry
             selectedIDs = Set([entry?.id].compactMap { $0 })
+            selectionOrder = [entry?.id].compactMap { $0 }
+        }
+        popoverEntry = nil
+    }
+
+    private func extendSelection(by offset: Int) {
+        let entries = filteredEntries
+        guard !entries.isEmpty, let current = selectedEntry,
+              let currentIndex = entries.firstIndex(where: { $0.id == current.id }) else { return }
+        let raw = currentIndex + offset
+        let newIndex = max(0, min(raw, entries.count - 1))
+        let next = entries[newIndex]
+        selectedEntry = next
+        selectedIDs.insert(next.id)
+        if !selectionOrder.contains(next.id) {
+            selectionOrder.append(next.id)
         }
         popoverEntry = nil
     }
@@ -672,6 +825,159 @@ struct ClipboardListView: View {
         let snippet = SavedSnippet(title: title, content: text, order: nextOrder)
         modelContext.insert(snippet)
         viewMode = .snippets
+    }
+
+    // MARK: - Transformations
+
+    /// Returns the text to transform: textContent for text entries, file paths for file entries
+    private func transformableText(for entry: ClipboardEntry) -> String? {
+        if let text = entry.textContent { return text }
+        if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+            return paths.joined(separator: "\n")
+        }
+        return nil
+    }
+
+    private func transformMenuButton(for entry: ClipboardEntry) -> some View {
+        Menu {
+            ForEach(settings.customTransformations.filter(\.isEnabled)) { transform in
+                Button(transform.name) {
+                    if transform.isBuiltIn {
+                        applyBuiltIn(builtInKind(for: transform), to: entry)
+                    } else {
+                        applyCustom(transform, to: entry)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.08)))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func showTransformMenu(for entry: ClipboardEntry) {
+        let menu = NSMenu()
+        let enabled = settings.customTransformations.filter(\.isEnabled)
+        for transform in enabled {
+            let item = NSMenuItem(title: transform.name, action: #selector(TransformMenuTarget.performTransform(_:)), keyEquivalent: "")
+            item.representedObject = TransformBox(transform)
+            item.target = TransformMenuTarget.shared
+            menu.addItem(item)
+        }
+        TransformMenuTarget.shared.onApply = { [self] transform in
+            if transform.isBuiltIn {
+                applyBuiltIn(builtInKind(for: transform), to: entry)
+            } else {
+                applyCustom(transform, to: entry)
+            }
+        }
+
+        // Anchor to the selected row via the stored anchor view
+        if let anchorView = AnchorViewRepresentable.currentView {
+            let bounds = anchorView.bounds
+            let point = NSPoint(x: bounds.maxX, y: bounds.midY)
+            menu.popUp(positioning: menu.items.first, at: point, in: anchorView)
+        }
+    }
+
+    enum BuiltInTransform {
+        case uppercase, lowercase, capitalCase
+    }
+
+    private func builtInKind(for transform: CustomTransformation) -> BuiltInTransform {
+        switch transform.id {
+        case CustomTransformation.builtInUppercase.id: return .uppercase
+        case CustomTransformation.builtInLowercase.id: return .lowercase
+        default: return .capitalCase
+        }
+    }
+
+    private func applyBuiltIn(_ transform: BuiltInTransform, to entry: ClipboardEntry) {
+        guard let text = transformableText(for: entry) else { return }
+        let result: String
+        switch transform {
+        case .uppercase: result = text.uppercased()
+        case .lowercase: result = text.lowercased()
+        case .capitalCase: result = text.capitalized
+        }
+        createTransformedEntry(from: entry, newText: result)
+    }
+
+    private func applyCustom(_ custom: CustomTransformation, to entry: ClipboardEntry) {
+        guard let text = transformableText(for: entry),
+              let regex = try? NSRegularExpression(pattern: custom.pattern) else { return }
+        let fullRange = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: fullRange)
+
+        // Replace in reverse order, skipping zero-length matches to avoid
+        // inserting the replacement template at empty-string positions
+        var result = text
+        for match in matches.reversed() {
+            guard match.range.length > 0 else { continue }
+            let replacement = regex.replacementString(for: match, in: result, offset: 0, template: custom.replacement)
+            let start = result.index(result.startIndex, offsetBy: match.range.location)
+            let end = result.index(start, offsetBy: match.range.length)
+            result.replaceSubrange(start..<end, with: replacement)
+        }
+        createTransformedEntry(from: entry, newText: result)
+    }
+
+    private func createTransformedEntry(from original: ClipboardEntry, newText: String) {
+        let newEntry = ClipboardEntry(
+            textContent: newText,
+            contentType: .text,
+            sourceAppBundleID: Bundle.main.bundleIdentifier,
+            sourceAppName: "Clipboard Manager"
+        )
+        modelContext.insert(newEntry)
+        try? modelContext.save()
+        selectedEntry = newEntry
+        selectedIDs = [newEntry.id]
+        selectionOrder = [newEntry.id]
+
+        // Copy to clipboard and paste into active app
+        AppDelegate.shared?.clipboardMonitor?.selfCopiedEntryID = newEntry.id
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(newText, forType: .string)
+        AppDelegate.shared?.pasteIntoPreviousApp()
+    }
+}
+
+// MARK: - Transform Menu Target
+
+private class TransformBox: NSObject {
+    let value: CustomTransformation
+    init(_ value: CustomTransformation) { self.value = value }
+}
+
+private class TransformMenuTarget: NSObject {
+    static let shared = TransformMenuTarget()
+    var onApply: ((CustomTransformation) -> Void)?
+
+    @objc func performTransform(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? TransformBox else { return }
+        onApply?(box.value)
+    }
+}
+
+// MARK: - Anchor View for Transform Menu
+
+private struct AnchorViewRepresentable: NSViewRepresentable {
+    static weak var currentView: NSView?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        AnchorViewRepresentable.currentView = nsView
     }
 }
 
