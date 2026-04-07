@@ -23,6 +23,9 @@ final class SavedSnippet {
     /// RTF data for rich text content (nil = plain text only)
     var rtfData: Data?
 
+    /// When true, paste as plain text so the snippet inherits the destination app's font/size
+    var matchDestinationFont: Bool = true
+
     var keyCombo: KeyCombo? {
         get {
             guard let kc = hotkeyKeyCode, let mods = hotkeyModifiers else { return nil }

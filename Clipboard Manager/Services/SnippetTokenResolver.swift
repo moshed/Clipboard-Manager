@@ -54,6 +54,20 @@ enum SnippetTokenResolver {
         return result
     }
 
+    /// Returns true if the content is entirely composed of tokens (e.g. "{{date}}") with no other text.
+    /// Used to force plain-text paste so the result adapts to the destination's formatting.
+    static func isTokenOnly(_ content: String) -> Bool {
+        var stripped = content
+        // Remove custom date format tokens first
+        if let regex = try? NSRegularExpression(pattern: #"\{\{date:([^}]+)\}\}"#) {
+            stripped = regex.stringByReplacingMatches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped), withTemplate: "")
+        }
+        for token in ["{{clipboard}}", "{{date}}", "{{time}}", "{{datetime}}", "{{timestamp}}"] {
+            stripped = stripped.replacingOccurrences(of: token, with: "")
+        }
+        return stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Returns array of (NSRange, replacement) pairs for all tokens in the string, ordered by position
     static func findTokenRanges(in content: String, clipboardText: String? = nil) -> [(NSRange, String)] {
         var results: [(NSRange, String)] = []
