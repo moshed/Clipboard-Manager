@@ -144,20 +144,33 @@ class ClipboardMonitor: ObservableObject {
 
         let context = ModelContext(modelContainer)
 
+        debugLog("Copy from: \(bundleID ?? "nil") (\(appName ?? "nil")), types: \(pasteboard.types?.map(\.rawValue) ?? [])")
+
         // Check local file URLs first — only file:// URLs, not http(s):// from browsers
         let fileURLs = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.filter { $0.isFileURL }
         if let urls = fileURLs, !urls.isEmpty {
             let paths = urls.map { $0.path }
-            let thumbnail = generateFileThumbnail(for: urls.first!)
+
+            // For image files, capture full-size image from pasteboard so pasting
+            // back preserves the original size (not a 256x256 thumbnail)
+            let firstExt = urls.first?.pathExtension.lowercased() ?? ""
+            let imgExts: Set<String> = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "heic"]
+            let imageData: Data?
+            if imgExts.contains(firstExt), let fullImage = extractImageData(from: pasteboard) {
+                imageData = fullImage
+            } else {
+                imageData = generateFileThumbnail(for: urls.first!)
+            }
+
             let entry = ClipboardEntry(
-                imageData: thumbnail,
+                imageData: imageData,
                 filePaths: paths,
                 contentType: .file,
                 sourceAppBundleID: bundleID,
                 sourceAppName: appName
             )
             context.insert(entry)
-            if let imgData = thumbnail {
+            if let imgData = imageData {
                 performOCR(imageData: imgData, entryID: entry.id)
             }
         } else if !(bundleID == "com.microsoft.Excel" && settings.excelCleanup && settings.excelCopyAsText), let imageData = extractImageData(from: pasteboard) {
@@ -244,16 +257,15 @@ class ClipboardMonitor: ObservableObject {
     }
 
     private func extractImageData(from pasteboard: NSPasteboard) -> Data? {
-        let imageTypes: [NSPasteboard.PasteboardType] = [.tiff, .png]
-        for type in imageTypes {
-            if let data = pasteboard.data(forType: type) {
-                if let image = NSImage(data: data), let tiff = image.tiffRepresentation,
-                   let rep = NSBitmapImageRep(data: tiff),
-                   let png = rep.representation(using: .png, properties: [:]) {
-                    return png
-                }
-                return data
-            }
+        // Prefer raw PNG — no conversion needed, preserves original dimensions and DPI
+        if let pngData = pasteboard.data(forType: .png) {
+            return pngData
+        }
+        // Convert TIFF to PNG using NSBitmapImageRep directly (avoids NSImage DPI changes)
+        if let tiffData = pasteboard.data(forType: .tiff),
+           let rep = NSBitmapImageRep(data: tiffData),
+           let png = rep.representation(using: .png, properties: [:]) {
+            return png
         }
         return nil
     }
@@ -473,8 +485,17 @@ class ClipboardMonitor: ObservableObject {
         let selectedRows = selection.rows
         let selectedCols = selection.cols
         let minRow = selectedRows.min()!
+        let maxRow = selectedRows.max()!
         let minCol = selectedCols.min()!
         let maxCol = selectedCols.max()!
+
+        // If text has more lines than the bounding box of selected rows,
+        // cells contain in-cell line breaks — can't reliably map lines to rows
+        let boundingRowCount = maxRow - minRow + 1
+        if textRows.count > boundingRowCount {
+            debugLog("Excel: text lines (\(textRows.count)) > bounding rows (\(boundingRowCount)), in-cell line breaks — skipping cleanup")
+            return nil
+        }
 
         // Count total columns in bounding box
         let totalCols = maxCol - minCol + 1
