@@ -33,6 +33,7 @@ struct SnippetEditorView: View {
     @State private var matchDestinationFont: Bool = true
     @State private var attributedContent = NSMutableAttributedString()
     @State private var editorCoordinator: RichTextEditorCoordinator?
+    @State private var customDateFormat: String = "MM/dd/yyyy"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -117,14 +118,39 @@ struct SnippetEditorView: View {
                             tokenButton("{{date}}")
                             tokenButton("{{time}}")
                             tokenButton("{{datetime}}")
+                            tokenButton("{{latlon}}")
                         }
                         HStack(spacing: 6) {
                             Text("Custom:")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
+                            tokenButton("{{date:MM/dd/yyyy}}")
                             tokenButton("{{date:yyyy-MM-dd}}")
                             tokenButton("{{date:MMM d, yyyy}}")
                             tokenButton("{{date:h:mm a}}")
+                        }
+
+                        // Build-your-own date format with live preview
+                        HStack(spacing: 6) {
+                            Text("Format:")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                            TextField("MM/dd/yyyy", text: $customDateFormat)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11, design: .monospaced))
+                                .frame(width: 120)
+                            Text(customDatePreview)
+                                .font(.system(size: 11))
+                                .foregroundStyle(customDatePreview.isEmpty ? .tertiary : .secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Button("Insert") {
+                                let fmt = customDateFormat.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !fmt.isEmpty else { return }
+                                editorCoordinator?.insertText("{{date:\(fmt)}}")
+                            }
+                            .controlSize(.small)
+                            .disabled(customDateFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
 
@@ -233,8 +259,21 @@ struct SnippetEditorView: View {
         return "New Snippet"
     }
 
+    /// Live "→ result" preview of the typed custom date format, using the current date.
+    private var customDatePreview: String {
+        let fmt = customDateFormat.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fmt.isEmpty else { return "" }
+        let df = DateFormatter()
+        df.dateFormat = fmt
+        let out = df.string(from: Date())
+        return out.isEmpty ? "" : "→ \(out)"
+    }
+
     private func tokenButton(_ token: String) -> some View {
         Button {
+            // Request location access in-context (brings app forward so the
+            // permission prompt can actually appear) when adding the coord token.
+            if token == "{{latlon}}" { LocationProvider.shared.requestAccess() }
             editorCoordinator?.insertText(token)
         } label: {
             Text(token)
@@ -287,6 +326,9 @@ struct SnippetEditorView: View {
         }
         try? modelContext.save()
         snippetDebugLog("  modelContext.save() called")
+        // Re-register global hotkeys so a hotkey set/changed here takes effect immediately
+        // (without this the new binding only worked after an app relaunch).
+        NotificationCenter.default.post(name: .snippetHotkeysChanged, object: nil)
         onSave()
     }
 }

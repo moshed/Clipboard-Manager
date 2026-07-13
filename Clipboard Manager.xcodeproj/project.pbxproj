@@ -10,6 +10,7 @@
 		A10001 /* ClipboardManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
 		A10002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
 		A10003 /* ClipboardEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
+		A10100 /* ClipboardImageBlob.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100; };
 		A10004 /* ClipboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
 		A10005 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
 		A10006 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
@@ -32,6 +33,7 @@
 		B10001 /* ClipboardManagerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardManagerApp.swift; sourceTree = "<group>"; };
 		B10002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B10003 /* ClipboardEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardEntry.swift; sourceTree = "<group>"; };
+		B10100 /* ClipboardImageBlob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardImageBlob.swift; sourceTree = "<group>"; };
 		B10004 /* ClipboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardMonitor.swift; sourceTree = "<group>"; };
 		B10005 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		B10006 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
@@ -100,6 +102,7 @@
 			isa = PBXGroup;
 			children = (
 				B10003 /* ClipboardEntry.swift */,
+				B10100 /* ClipboardImageBlob.swift */,
 				B10018 /* SavedSnippet.swift */,
 			);
 			path = Models;
@@ -223,6 +226,7 @@
 				A10001 /* ClipboardManagerApp.swift in Sources */,
 				A10002 /* AppDelegate.swift in Sources */,
 				A10003 /* ClipboardEntry.swift in Sources */,
+				A10100 /* ClipboardImageBlob.swift in Sources */,
 				A10004 /* ClipboardMonitor.swift in Sources */,
 				A10005 /* HotkeyManager.swift in Sources */,
 				A10006 /* SettingsManager.swift in Sources */,

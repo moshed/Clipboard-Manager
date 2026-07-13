@@ -41,9 +41,15 @@ struct ClipboardListView: View {
                 let text = entry.textContent ?? entry.firstLine ?? ""
                 let appName = entry.sourceAppName ?? ""
                 let ocrText = entry.ocrText ?? ""
+                let domain = entry.sourceDomain ?? ""
+                let pageURL = entry.sourcePageURL ?? ""
+                let srcURL = entry.sourceURL ?? ""
                 if !text.localizedCaseInsensitiveContains(searchText)
                     && !appName.localizedCaseInsensitiveContains(searchText)
-                    && !ocrText.localizedCaseInsensitiveContains(searchText) {
+                    && !ocrText.localizedCaseInsensitiveContains(searchText)
+                    && !domain.localizedCaseInsensitiveContains(searchText)
+                    && !pageURL.localizedCaseInsensitiveContains(searchText)
+                    && !srcURL.localizedCaseInsensitiveContains(searchText) {
                     return false
                 }
             }
@@ -91,10 +97,12 @@ struct ClipboardListView: View {
             AppDelegate.shared?.openSettingsWindow()
         }
         .onReceive(NotificationCenter.default.publisher(for: .panelEscapePressed)) { _ in
-            if !searchText.isEmpty {
+            if showFilters {
+                showFilters = false
+            } else if !searchText.isEmpty {
                 searchText = ""
             } else {
-                NSApp.keyWindow?.orderOut(nil)
+                AppDelegate.shared?.closePanel()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .panelDidOpen)) { _ in
@@ -103,27 +111,24 @@ struct ClipboardListView: View {
             selectionOrder = [filteredEntries.first?.id].compactMap { $0 }
             popoverEntry = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: .panelDidClose)) { _ in
+            dateFilter = .all
+            appFilter = []
+            typeFilter = []
+        }
         .background(KeyEventHandlerView(
             onCopyPlain: {
                 if viewMode == .snippets {
                     insertSelectedSnippet()
                 } else if viewMode == .clipboard {
-                    let entries = selectedEntries
-                    if !entries.isEmpty {
-                        copyPlainMultiple(entries)
-                        AppDelegate.shared?.pasteIntoPreviousApp()
-                    }
+                    pastePrimary()
                 }
             },
             onCopyFormatted: {
                 if viewMode == .snippets {
                     insertSelectedSnippet()
                 } else if viewMode == .clipboard {
-                    let entries = selectedEntries
-                    if !entries.isEmpty {
-                        copyFormattedMultiple(entries)
-                        AppDelegate.shared?.pasteIntoPreviousApp()
-                    }
+                    pasteAlternate()
                 }
             },
             onPasteOrdered: {
@@ -136,6 +141,12 @@ struct ClipboardListView: View {
             onTransform: {
                 guard viewMode == .clipboard, let entry = selectedEntry, transformableText(for: entry) != nil else { return }
                 showTransformMenu(for: entry)
+            },
+            onSaveImage: {
+                guard viewMode == .clipboard else { return }
+                let images = selectedEntries.filter { $0.contentType == .image || $0.contentType == .screenshot }
+                guard !images.isEmpty else { return }
+                saveImagesToFolder(images)
             },
             onDownArrow: {
                 if viewMode == .snippets {
@@ -195,6 +206,7 @@ struct ClipboardListView: View {
                 selectedIDs = nextEntry.map { Set([$0.id]) } ?? []
                 selectionOrder = [nextEntry?.id].compactMap { $0 }
                 for entry in toDelete {
+                    ClipboardImageStore.deleteBlob(for: entry.id, context: modelContext)
                     modelContext.delete(entry)
                 }
             },
@@ -202,22 +214,14 @@ struct ClipboardListView: View {
                 if viewMode == .snippets {
                     insertSelectedSnippet()
                 } else if viewMode == .clipboard {
-                    let entries = selectedEntries
-                    if !entries.isEmpty {
-                        copyPlainMultiple(entries)
-                        AppDelegate.shared?.pasteIntoPreviousApp()
-                    }
+                    pastePrimary()
                 }
             },
             onShiftEnter: {
                 if viewMode == .snippets {
                     insertSelectedSnippet()
                 } else if viewMode == .clipboard {
-                    let entries = selectedEntries
-                    if !entries.isEmpty {
-                        copyFormattedMultiple(entries)
-                        AppDelegate.shared?.pasteIntoPreviousApp()
-                    }
+                    pasteAlternate()
                 }
             },
             onTyping: { chars in
@@ -228,6 +232,11 @@ struct ClipboardListView: View {
             onFocusSearch: {
                 if viewMode == .clipboard {
                     isSearchFocused = true
+                }
+            },
+            onToggleFilters: {
+                if viewMode == .clipboard {
+                    showFilters.toggle()
                 }
             },
             onToggleTab: {
@@ -339,8 +348,13 @@ struct ClipboardListView: View {
             set: { if !$0 { popoverEntry = nil } }
         )
 
+        // Position in the paste order — only meaningful once more than one item is picked
+        let orderIndex: Int? = selectedIDs.count > 1
+            ? selectionOrder.firstIndex(of: entry.id).map { $0 + 1 }
+            : nil
+
         VStack(spacing: 0) {
-            ClipboardRowView(entry: entry, isSelected: isSelected)
+            ClipboardRowView(entry: entry, isSelected: isSelected, selectionIndex: orderIndex)
                 .background(isSelected ? AnchorViewRepresentable() : nil)
                 .overlay(alignment: .trailing) {
                     ZStack(alignment: .trailing) {
@@ -364,10 +378,22 @@ struct ClipboardListView: View {
                         AppDelegate.shared?.pasteIntoPreviousApp()
                     }
                 }
+                .simultaneousGesture(
+                    TapGesture().modifiers(.shift).onEnded {
+                        handleTap(entry, shift: true)
+                    }
+                )
+                .simultaneousGesture(
+                    TapGesture().modifiers(.command).onEnded {
+                        handleTap(entry, command: true)
+                    }
+                )
                 .onTapGesture(count: 1) {
                     let flags = NSEvent.modifierFlags
-                    if flags.contains(.command) || flags.contains(.shift) {
-                        handleTap(entry, command: flags.contains(.command), shift: flags.contains(.shift))
+                    if flags.contains(.shift) {
+                        handleTap(entry, shift: true)
+                    } else if flags.contains(.command) {
+                        handleTap(entry, command: true)
                     } else {
                         handleTap(entry)
                         if settings.mouseAction == "singleClick" {
@@ -409,6 +435,9 @@ struct ClipboardListView: View {
             if let url = entry.sourceURL {
                 Button("Copy Address  (\(settings.copyFormattedShortcut?.displayString ?? "—"))") { copyString(url, for: entry) }
             }
+            Button("Save Image to Folder  (\(settings.saveImageShortcut?.displayString ?? "—"))") {
+                saveImagesToFolder([entry])
+            }
         } else if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
             Button("Copy Path  (\(settings.copyFormattedShortcut?.displayString ?? "—"))") {
                 copyString(paths.joined(separator: "\n"), for: entry)
@@ -433,11 +462,13 @@ struct ClipboardListView: View {
         Button("Delete", role: .destructive) {
             if selectedIDs.contains(entry.id) {
                 selectedIDs.remove(entry.id)
+                selectionOrder.removeAll { $0 == entry.id }
                 if selectedEntry?.id == entry.id {
                     selectedEntry = filteredEntries.first(where: { selectedIDs.contains($0.id) })
                 }
             }
             if popoverEntry?.id == entry.id { popoverEntry = nil }
+            ClipboardImageStore.deleteBlob(for: entry.id, context: modelContext)
             modelContext.delete(entry)
         }
     }
@@ -545,6 +576,7 @@ struct ClipboardListView: View {
                         selectedEntry = filteredEntries.first(where: { selectedIDs.contains($0.id) })
                     }
                 }
+                ClipboardImageStore.deleteBlob(for: entry.id, context: modelContext)
                 modelContext.delete(entry)
             },
             onSaveSnippet: entry.contentType == .text || entry.contentType == .rtf || entry.contentType == .url ? { saveEntryAsSnippet(entry) } : nil
@@ -579,17 +611,29 @@ struct ClipboardListView: View {
 
     // MARK: - Actions
 
+    /// Full image bytes for an entry — checks legacy inline imageData first, then the blob store.
+    private func fullImageData(for entry: ClipboardEntry) -> Data? {
+        if let data = entry.imageData { return data }
+        return ClipboardImageStore.fullData(for: entry.id, context: modelContext)
+    }
+
+    /// Whether the entry has any image bytes available (inline, blob, or thumbnail marker).
+    private func hasImageBytes(_ entry: ClipboardEntry) -> Bool {
+        entry.imageData != nil || entry.thumbnailData != nil
+    }
+
     /// Build pasteboard items for an entry (one per file path, or one for image/text)
     private func pasteboardItems(for entry: ClipboardEntry) -> [NSPasteboardItem] {
         if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
             var items: [NSPasteboardItem] = []
+            let imageBytes = fullImageData(for: entry)
             for (i, path) in paths.enumerated() {
                 let item = NSPasteboardItem()
                 if FileManager.default.fileExists(atPath: path) {
                     item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
                 }
                 // Add image data to first item for inline paste support
-                if i == 0, let data = entry.imageData {
+                if i == 0, let data = imageBytes {
                     item.setData(data, forType: .png)
                     if let rep = NSBitmapImageRep(data: data),
                        let tiff = rep.representation(using: .tiff, properties: [:]) {
@@ -599,7 +643,7 @@ struct ClipboardListView: View {
                 items.append(item)
             }
             return items
-        } else if let imageData = entry.imageData, entry.contentType == .image || entry.contentType == .screenshot {
+        } else if (entry.contentType == .image || entry.contentType == .screenshot), let imageData = fullImageData(for: entry) {
             let item = NSPasteboardItem()
             item.setData(imageData, forType: .png)
             if let rep = NSBitmapImageRep(data: imageData),
@@ -616,10 +660,33 @@ struct ClipboardListView: View {
         }
     }
 
+    /// Pasteboard items for a *multi-item* paste. Apps almost universally ignore all but
+    /// the first item's image data, so images are spilled to temp PNGs and carried as file
+    /// URLs — Mail/Finder/Word all accept a multi-file paste and inline them.
+    private func multiPasteboardItems(for entry: ClipboardEntry) -> [NSPasteboardItem] {
+        guard entry.contentType == .image || entry.contentType == .screenshot,
+              let data = fullImageData(for: entry) else {
+            return pasteboardItems(for: entry)
+        }
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ClipboardManager", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(entry.id.uuidString).png")
+        guard (try? data.write(to: url)) != nil else { return pasteboardItems(for: entry) }
+
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .fileURL)
+        item.setData(data, forType: .png)
+        if let rep = NSBitmapImageRep(data: data),
+           let tiff = rep.representation(using: .tiff, properties: [:]) {
+            item.setData(tiff, forType: .tiff)
+        }
+        return [item]
+    }
+
     /// Whether an entry carries non-text data (image or file) that needs per-item pasteboard items
     private func isNonTextEntry(_ entry: ClipboardEntry) -> Bool {
         entry.contentType == .image || entry.contentType == .screenshot ||
-        (entry.contentType == .file && (entry.imageData != nil || entry.filePaths != nil))
+        (entry.contentType == .file && (hasImageBytes(entry) || entry.filePaths != nil))
     }
 
     private func copyPlainMultiple(_ entries: [ClipboardEntry]) {
@@ -669,8 +736,72 @@ struct ClipboardListView: View {
         if let first = entries.first { showCopiedFeedback(first) }
     }
 
-    /// Paste multiple items in the order they were selected
-    private func copyOrderedMultiple(_ entries: [ClipboardEntry]) {
+    // MARK: - Paste Entry Points
+    //
+    // Enter (copyPlainShortcut) and Shift+Enter (copyFormattedShortcut) both land here.
+    // A single item keeps its old behaviour (plain / formatted copy); a multi-selection
+    // pastes in pick order joined with the primary / alternate separator.
+
+    private func pastePrimary() {
+        let entries = selectedEntriesInOrder
+        guard !entries.isEmpty else { return }
+        copyOrderedMultiple(entries)
+        AppDelegate.shared?.pasteIntoPreviousApp()
+    }
+
+    private func pasteAlternate() {
+        let entries = selectedEntriesInOrder
+        guard !entries.isEmpty else { return }
+        if entries.count == 1 {
+            copyFormatted(entries[0])
+            AppDelegate.shared?.pasteIntoPreviousApp()
+            return
+        }
+        if settings.multiPasteAltSeparator == "ask" {
+            showSeparatorMenu(for: entries)
+            return
+        }
+        copyOrderedMultiple(entries, separator: settings.resolvedAltSeparator)
+        AppDelegate.shared?.pasteIntoPreviousApp()
+    }
+
+    /// Pop up a separator picker anchored to the selected row, then paste with the choice.
+    private func showSeparatorMenu(for entries: [ClipboardEntry]) {
+        let choices: [(String, String)] = [
+            ("New Line", "\n"),
+            ("Comma", ", "),
+            ("Semicolon", "; "),
+            ("Space", " "),
+            ("Dash", " - "),
+            ("Tab", "\t"),
+            ("Custom (\(settings.multiPasteAltCustomSeparator))",
+             SettingsManager.unescape(settings.multiPasteAltCustomSeparator))
+        ]
+        let menu = NSMenu()
+        for (index, choice) in choices.enumerated() {
+            let number = index + 1
+            let item = NSMenuItem(title: "\(number)   \(choice.0)",
+                                  action: #selector(SeparatorMenuTarget.pick(_:)),
+                                  keyEquivalent: "\(number)")
+            item.keyEquivalentModifierMask = []
+            item.representedObject = choice.1
+            item.target = SeparatorMenuTarget.shared
+            menu.addItem(item)
+        }
+        SeparatorMenuTarget.shared.onPick = { separator in
+            copyOrderedMultiple(entries, separator: separator)
+            AppDelegate.shared?.pasteIntoPreviousApp()
+        }
+        if let anchorView = AnchorViewRepresentable.currentView {
+            let bounds = anchorView.bounds
+            let point = NSPoint(x: bounds.maxX, y: bounds.midY)
+            menu.popUp(positioning: menu.items.first, at: point, in: anchorView)
+        }
+    }
+
+    /// Paste multiple items in the order they were selected, joined with `separator`
+    /// (defaults to the separator configured in Settings).
+    private func copyOrderedMultiple(_ entries: [ClipboardEntry], separator: String? = nil) {
         if entries.count == 1 {
             copyPlain(entries[0])
             return
@@ -680,12 +811,12 @@ struct ClipboardListView: View {
         pb.clearContents()
 
         if entries.contains(where: { isNonTextEntry($0) }) {
-            pb.writeObjects(entries.flatMap { pasteboardItems(for: $0) })
+            pb.writeObjects(entries.flatMap { multiPasteboardItems(for: $0) })
         } else {
-            let separator = settings.resolvedSeparator
+            let sep = separator ?? settings.resolvedSeparator
             let combined = entries.compactMap { entry -> String? in
                 entry.textContent ?? entry.ocrText
-            }.joined(separator: separator)
+            }.joined(separator: sep)
             pb.setString(combined, forType: .string)
         }
         if let first = entries.first { showCopiedFeedback(first) }
@@ -697,13 +828,14 @@ struct ClipboardListView: View {
         pb.clearContents()
         if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
             // Reconstruct original pasteboard: file URLs + image data for inline paste
+            let imageBytes = fullImageData(for: entry)
             var items: [NSPasteboardItem] = []
             for (i, path) in paths.enumerated() {
                 let item = NSPasteboardItem()
                 if FileManager.default.fileExists(atPath: path) {
                     item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
                 }
-                if i == 0, let data = entry.imageData {
+                if i == 0, let data = imageBytes {
                     item.setData(data, forType: .png)
                     if let rep = NSBitmapImageRep(data: data),
                        let tiff = rep.representation(using: .tiff, properties: [:]) {
@@ -714,12 +846,12 @@ struct ClipboardListView: View {
             }
             pb.writeObjects(items)
         } else if entry.contentType == .image || entry.contentType == .screenshot {
-            if let data = entry.imageData {
+            if let data = fullImageData(for: entry) {
                 copyImageToPasteboard(data, pasteboard: pb)
             }
         } else if let text = entry.textContent {
             pb.setString(text, forType: .string)
-        } else if let data = entry.imageData {
+        } else if let data = fullImageData(for: entry) {
             copyImageToPasteboard(data, pasteboard: pb)
         }
         showCopiedFeedback(entry)
@@ -754,7 +886,7 @@ struct ClipboardListView: View {
         if let rtfd = entry.rtfdData { pb.setData(rtfd, forType: .rtfd) }
         if let rtf = entry.rtfData { pb.setData(rtf, forType: .rtf) }
         if let text = entry.textContent { pb.setString(text, forType: .string) }
-        if let data = entry.imageData { pb.setData(data, forType: .png) }
+        if let data = fullImageData(for: entry) { pb.setData(data, forType: .png) }
         showCopiedFeedback(entry)
     }
 
@@ -764,6 +896,39 @@ struct ClipboardListView: View {
         pb.clearContents()
         pb.setString(string, forType: .string)
         showCopiedFeedback(entry)
+    }
+
+    /// Write the given image entries to the configured save folder as PNGs.
+    /// Reveals the saved file(s) in Finder and flashes the first row as feedback.
+    private func saveImagesToFolder(_ entries: [ClipboardEntry]) {
+        let folder = settings.imageSaveFolderURL
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+
+        var savedURLs: [URL] = []
+        for entry in entries {
+            guard let data = fullImageData(for: entry) else { continue }
+            let base = "Clipboard Image \(df.string(from: entry.timestamp))"
+            var dest = folder.appendingPathComponent("\(base).png")
+            var n = 2
+            while fm.fileExists(atPath: dest.path) {
+                dest = folder.appendingPathComponent("\(base) (\(n)).png")
+                n += 1
+            }
+            if (try? data.write(to: dest)) != nil {
+                savedURLs.append(dest)
+            }
+        }
+
+        guard !savedURLs.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting(savedURLs)
+        if let first = entries.first { showCopiedFeedback(first) }
     }
 
     private func showCopiedFeedback(_ entry: ClipboardEntry) {
@@ -954,6 +1119,16 @@ struct ClipboardListView: View {
 private class TransformBox: NSObject {
     let value: CustomTransformation
     init(_ value: CustomTransformation) { self.value = value }
+}
+
+private class SeparatorMenuTarget: NSObject {
+    static let shared = SeparatorMenuTarget()
+    var onPick: ((String) -> Void)?
+
+    @objc func pick(_ sender: NSMenuItem) {
+        guard let separator = sender.representedObject as? String else { return }
+        onPick?(separator)
+    }
 }
 
 private class TransformMenuTarget: NSObject {

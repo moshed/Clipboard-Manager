@@ -3,6 +3,7 @@ import SwiftData
 import ServiceManagement
 import Carbon
 import UniformTypeIdentifiers
+import CoreLocation
 
 struct SettingsView: View {
     @ObservedObject var settings = SettingsManager.shared
@@ -84,6 +85,7 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsManager
+    @ObservedObject private var location = LocationProvider.shared
     @Binding var launchAtLogin: Bool
     var onClearAll: (() -> Void)?
     @State private var historyText: String = ""
@@ -117,24 +119,38 @@ struct GeneralSettingsView: View {
             Toggle("Excel Cleanup", isOn: $settings.excelCleanup)
 
             if settings.excelCleanup {
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Toggle("Copy as text instead of image", isOn: $settings.excelCopyAsText)
-                        Text("Excel copies include an image. This captures the text content instead.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Toggle("Strip non-contiguous gaps", isOn: $settings.excelCleanNonContiguous)
-                        Text("When copying non-adjacent rows or columns, removes the unselected ones in between.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
-                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("Copy as text instead of image", isOn: $settings.excelCopyAsText)
+                    Text("Excel copies include an image. This captures the text content instead.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 20)
                 }
                 .padding(.leading, 20)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Location")
+                    Spacer()
+                    locationControl
+                }
+                Text("Used by the \u{007B}\u{007B}latlon\u{007D}\u{007D} snippet token to insert your current coordinates.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Save Images To")
+                    Spacer()
+                    Button(settings.imageSaveFolderURL.lastPathComponent) { chooseImageSaveFolder() }
+                }
+                Text(settings.imageSaveFolderURL.path)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             settingsRow("Toolbar Display") {
@@ -161,10 +177,7 @@ struct GeneralSettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 settingsRow("Multi-Paste Separator") {
                     Picker("", selection: $settings.multiPasteSeparator) {
-                        Text("New Line").tag("newline")
-                        Text("Comma").tag("comma")
-                        Text("Tab").tag("tab")
-                        Text("Custom").tag("custom")
+                        separatorOptions
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
@@ -178,6 +191,31 @@ struct GeneralSettingsView: View {
                     }
                     .padding(.leading, 20)
                 }
+
+                settingsRow("Shift+Enter Separator") {
+                    Picker("", selection: $settings.multiPasteAltSeparator) {
+                        separatorOptions
+                        Divider()
+                        Text("Ask Each Time").tag("ask")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 150)
+                }
+
+                // "Ask Each Time" offers Custom as one of its choices, so keep the field editable
+                if settings.multiPasteAltSeparator == "custom" || settings.multiPasteAltSeparator == "ask" {
+                    settingsRow("Custom Shift Separator") {
+                        ClearableTextField(text: $settings.multiPasteAltCustomSeparator, placeholder: " | ")
+                            .frame(width: 150)
+                    }
+                    .padding(.leading, 20)
+                }
+
+                Text("Enter pastes selected items in the order you picked them. Shift+Enter pastes the same items with the alternate separator. In a custom separator, \\n is a new line and \\t is a tab.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             settingsRow("Snippet Preview Lines") {
@@ -236,12 +274,51 @@ struct GeneralSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var locationControl: some View {
+        switch location.authStatus {
+        case .authorizedAlways, .authorized:
+            Label("Enabled", systemImage: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.green)
+                .labelStyle(.titleAndIcon)
+        case .denied, .restricted:
+            Button("Open System Settings…") { LocationProvider.shared.requestAccess() }
+                .help("Location was denied. Enable Clipboard Manager under Privacy & Security → Location Services.")
+        default: // notDetermined
+            Button("Enable Location…") { LocationProvider.shared.requestAccess() }
+        }
+    }
+
+    private func chooseImageSaveFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.directoryURL = settings.imageSaveFolderURL
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.imageSaveFolderPath = url.path
+        }
+    }
+
     private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack {
             Text(label)
             Spacer()
             content()
         }
+    }
+
+    @ViewBuilder
+    private var separatorOptions: some View {
+        Text("New Line").tag("newline")
+        Text("Comma").tag("comma")
+        Text("Semicolon").tag("semicolon")
+        Text("Space").tag("space")
+        Text("Dash").tag("dash")
+        Text("Tab").tag("tab")
+        Text("Custom").tag("custom")
     }
 }
 
@@ -255,6 +332,14 @@ struct ShortcutsSettingsView: View {
                 .font(.system(size: 14, weight: .bold))
 
             ShortcutRow(label: "Toggle Clipboard Manager", keyCombo: $settings.toggleShortcut, requireModifier: true, defaultCombo: .defaultToggle)
+
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Clean Excel Selection", keyCombo: $settings.excelCleanShortcut, requireModifier: true)
+                Text("In Excel, copies the current selection and strips non-contiguous row/column gaps.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
 
             Divider()
 
@@ -278,9 +363,17 @@ struct ShortcutsSettingsView: View {
                     .padding(.leading, 4)
             }
             OptionalShortcutRow(label: "Transform", keyCombo: $settings.transformShortcut, requireModifier: false)
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Save Image to Folder", keyCombo: $settings.saveImageShortcut, requireModifier: true)
+                Text("Saves the selected image entry to the folder set in General.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
             OptionalShortcutRow(label: "Delete", keyCombo: $settings.deleteShortcut, requireModifier: false)
             OptionalShortcutRow(label: "Preview", keyCombo: $settings.expandShortcut, requireModifier: false)
             OptionalShortcutRow(label: "Focus Search", keyCombo: $settings.searchShortcut, requireModifier: false)
+            OptionalShortcutRow(label: "Toggle Filters", keyCombo: $settings.filterShortcut, requireModifier: true)
 
             Divider()
 
@@ -724,9 +817,10 @@ struct BackupData: Codable {
         var snippetPreviewLines: Int?
         var multiPasteSeparator: String?
         var multiPasteCustomSeparator: String?
+        var multiPasteAltSeparator: String?
+        var multiPasteAltCustomSeparator: String?
         var excelCleanup: Bool?
         var excelCopyAsText: Bool?
-        var excelCleanNonContiguous: Bool?
         var excludedBundleIDs: [String]?
         var toggleShortcut: KeyCombo?
         var copyPlainShortcut: KeyCombo?
@@ -736,6 +830,9 @@ struct BackupData: Codable {
         var searchShortcut: KeyCombo?
         var tabToggleShortcut: KeyCombo?
         var tabBackwardShortcut: KeyCombo?
+        var excelCleanShortcut: KeyCombo?
+        var saveImageShortcut: KeyCombo?
+        var imageSaveFolderPath: String?
     }
 }
 
@@ -829,9 +926,10 @@ struct SnippetBackupView: View {
             snippetPreviewLines: sm.snippetPreviewLines,
             multiPasteSeparator: sm.multiPasteSeparator,
             multiPasteCustomSeparator: sm.multiPasteCustomSeparator,
+            multiPasteAltSeparator: sm.multiPasteAltSeparator,
+            multiPasteAltCustomSeparator: sm.multiPasteAltCustomSeparator,
             excelCleanup: sm.excelCleanup,
             excelCopyAsText: sm.excelCopyAsText,
-            excelCleanNonContiguous: sm.excelCleanNonContiguous,
             excludedBundleIDs: Array(sm.excludedBundleIDs),
             toggleShortcut: sm.toggleShortcut,
             copyPlainShortcut: sm.copyPlainShortcut,
@@ -840,7 +938,10 @@ struct SnippetBackupView: View {
             expandShortcut: sm.expandShortcut,
             searchShortcut: sm.searchShortcut,
             tabToggleShortcut: sm.tabToggleShortcut,
-            tabBackwardShortcut: sm.tabBackwardShortcut
+            tabBackwardShortcut: sm.tabBackwardShortcut,
+            excelCleanShortcut: sm.excelCleanShortcut,
+            saveImageShortcut: sm.saveImageShortcut,
+            imageSaveFolderPath: sm.imageSaveFolderPath
         )
         let exportData = BackupData(snippets: items, settings: settingsJSON)
 
@@ -895,9 +996,10 @@ struct SnippetBackupView: View {
                 if let v = s.snippetPreviewLines { sm.snippetPreviewLines = v }
                 if let v = s.multiPasteSeparator { sm.multiPasteSeparator = v }
                 if let v = s.multiPasteCustomSeparator { sm.multiPasteCustomSeparator = v }
+                if let v = s.multiPasteAltSeparator { sm.multiPasteAltSeparator = v }
+                if let v = s.multiPasteAltCustomSeparator { sm.multiPasteAltCustomSeparator = v }
                 if let v = s.excelCleanup { sm.excelCleanup = v }
                 if let v = s.excelCopyAsText { sm.excelCopyAsText = v }
-                if let v = s.excelCleanNonContiguous { sm.excelCleanNonContiguous = v }
                 if let v = s.excludedBundleIDs { sm.excludedBundleIDs = Set(v) }
                 if let v = s.toggleShortcut { sm.toggleShortcut = v }
                 if let v = s.copyPlainShortcut { sm.copyPlainShortcut = v }
@@ -907,6 +1009,9 @@ struct SnippetBackupView: View {
                 if let v = s.searchShortcut { sm.searchShortcut = v }
                 if let v = s.tabToggleShortcut { sm.tabToggleShortcut = v }
                 if let v = s.tabBackwardShortcut { sm.tabBackwardShortcut = v }
+                if let v = s.excelCleanShortcut { sm.excelCleanShortcut = v }
+                if let v = s.saveImageShortcut { sm.saveImageShortcut = v }
+                if let v = s.imageSaveFolderPath { sm.imageSaveFolderPath = v }
             }
 
             if !merge {

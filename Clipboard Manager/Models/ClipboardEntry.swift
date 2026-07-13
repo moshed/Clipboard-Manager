@@ -40,6 +40,7 @@ final class ClipboardEntry {
     var rtfData: Data?
     var rtfdData: Data?
     var imageData: Data?
+    var thumbnailData: Data?
     var filePaths: [String]?
     var contentTypeRaw: String
     var sourceAppBundleID: String?
@@ -48,10 +49,22 @@ final class ClipboardEntry {
     var isPinned: Bool
     var ocrText: String?
     var sourceURL: String?
+    /// The web page URL the item was copied from (e.g. the Safari/Chrome tab), when known.
+    var sourcePageURL: String?
+    /// Favicon PNG/ICO bytes for `sourceDomain`, fetched lazily for browser image copies.
+    var faviconData: Data?
 
     var contentType: ContentType {
         get { ContentType(rawValue: contentTypeRaw) ?? .text }
         set { contentTypeRaw = newValue.rawValue }
+    }
+
+    /// Host of the source page (falls back to the source/image URL), with a leading "www." stripped.
+    /// e.g. "www.alibaba.com" → "alibaba.com". Used for display and search.
+    var sourceDomain: String? {
+        let candidate = sourcePageURL ?? sourceURL
+        guard let candidate, let host = URL(string: candidate)?.host, !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     init(

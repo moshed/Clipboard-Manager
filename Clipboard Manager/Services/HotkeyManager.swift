@@ -8,7 +8,13 @@ class HotkeyManager {
     private static var instance: HotkeyManager?
     private let settings = SettingsManager.shared
 
+    /// Action + active-state for the Excel-clean hotkey, which is scoped to Excel only.
+    private var excelCleanAction: (() -> Void)?
+    private var excelCleanActive = false
+
     private static let toggleID: UInt32 = 1
+    private static let excelCleanID: UInt32 = 2
+    private static let snippetIDBase: UInt32 = 100
 
     init(onToggle: @escaping () -> Void) {
         HotkeyManager.instance = self
@@ -59,9 +65,36 @@ class HotkeyManager {
         }
     }
 
-    /// Unregister all snippet hotkeys (IDs > toggleID)
+    /// Store the Clean Excel Selection action. The hotkey is NOT registered here —
+    /// it is only registered while Excel is frontmost (see `setExcelCleanHotkeyActive`)
+    /// so the combo (e.g. ⌘⌥C) passes through to every other app untouched.
+    func setupExcelCleanHotkey(action: @escaping () -> Void) {
+        excelCleanAction = action
+        settings.onExcelCleanShortcutChanged = { [weak self] in
+            // Re-apply with the new combo if currently active.
+            guard let self, self.excelCleanActive else { return }
+            self.applyExcelCleanRegistration()
+        }
+    }
+
+    /// Enable the Excel-clean hotkey only while Excel is frontmost; disable otherwise.
+    func setExcelCleanHotkeyActive(_ active: Bool) {
+        guard active != excelCleanActive else { return }
+        excelCleanActive = active
+        applyExcelCleanRegistration()
+    }
+
+    private func applyExcelCleanRegistration() {
+        unregister(id: HotkeyManager.excelCleanID)
+        guard excelCleanActive,
+              let action = excelCleanAction,
+              let combo = settings.excelCleanShortcut else { return }
+        register(id: HotkeyManager.excelCleanID, combo: combo, action: action)
+    }
+
+    /// Unregister all snippet hotkeys (IDs in the snippet range)
     func unregisterSnippetHotkeys() {
-        let snippetIDs = registrations.keys.filter { $0 > HotkeyManager.toggleID }
+        let snippetIDs = registrations.keys.filter { $0 >= HotkeyManager.snippetIDBase }
         for id in snippetIDs {
             unregister(id: id)
         }
@@ -71,7 +104,7 @@ class HotkeyManager {
     func registerSnippetHotkeys(snippets: [(id: UUID, combo: KeyCombo)], action: @escaping (UUID) -> Void) {
         unregisterSnippetHotkeys()
         for (index, snippet) in snippets.enumerated() {
-            let snippetID = UInt32(100 + index) // Start snippet IDs at 100
+            let snippetID = HotkeyManager.snippetIDBase + UInt32(index)
             let uuid = snippet.id
             register(id: snippetID, combo: snippet.combo) {
                 action(uuid)

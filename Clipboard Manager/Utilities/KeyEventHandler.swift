@@ -7,6 +7,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
     var onCopyFormatted: () -> Void
     var onPasteOrdered: () -> Void = {}
     var onTransform: () -> Void = {}
+    var onSaveImage: () -> Void = {}
     var onDownArrow: () -> Void
     var onUpArrow: () -> Void
     var onShiftDownArrow: () -> Void = {}
@@ -19,6 +20,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
     var onShiftEnter: () -> Void
     var onTyping: (String) -> Void
     var onFocusSearch: () -> Void = {}
+    var onToggleFilters: () -> Void = {}
     var onToggleTab: () -> Void = {}
     var onToggleTabBackward: () -> Void = {}
 
@@ -28,6 +30,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         view.onCopyFormatted = onCopyFormatted
         view.onPasteOrdered = onPasteOrdered
         view.onTransform = onTransform
+        view.onSaveImage = onSaveImage
         view.onDownArrow = onDownArrow
         view.onUpArrow = onUpArrow
         view.onShiftDownArrow = onShiftDownArrow
@@ -40,6 +43,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         view.onShiftEnter = onShiftEnter
         view.onTyping = onTyping
         view.onFocusSearch = onFocusSearch
+        view.onToggleFilters = onToggleFilters
         view.onToggleTab = onToggleTab
         view.onToggleTabBackward = onToggleTabBackward
         return view
@@ -50,6 +54,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         nsView.onCopyFormatted = onCopyFormatted
         nsView.onPasteOrdered = onPasteOrdered
         nsView.onTransform = onTransform
+        nsView.onSaveImage = onSaveImage
         nsView.onDownArrow = onDownArrow
         nsView.onUpArrow = onUpArrow
         nsView.onShiftDownArrow = onShiftDownArrow
@@ -62,6 +67,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         nsView.onShiftEnter = onShiftEnter
         nsView.onTyping = onTyping
         nsView.onFocusSearch = onFocusSearch
+        nsView.onToggleFilters = onToggleFilters
         nsView.onToggleTab = onToggleTab
         nsView.onToggleTabBackward = onToggleTabBackward
     }
@@ -72,6 +78,7 @@ class KeyCaptureView: NSView {
     var onCopyFormatted: (() -> Void)?
     var onPasteOrdered: (() -> Void)?
     var onTransform: (() -> Void)?
+    var onSaveImage: (() -> Void)?
     var onDownArrow: (() -> Void)?
     var onUpArrow: (() -> Void)?
     var onShiftDownArrow: (() -> Void)?
@@ -84,6 +91,7 @@ class KeyCaptureView: NSView {
     var onShiftEnter: (() -> Void)?
     var onTyping: ((String) -> Void)?
     var onFocusSearch: (() -> Void)?
+    var onToggleFilters: (() -> Void)?
     var onToggleTab: (() -> Void)?
     var onToggleTabBackward: (() -> Void)?
 
@@ -145,8 +153,11 @@ class KeyCaptureView: NSView {
                 onFocusSearch?()
                 return true
             }
-            // Let system handle other Cmd shortcuts
-            return false
+            if let combo = settings.filterShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+                onToggleFilters?()
+                return true
+            }
+            // Fall through so user-configured Cmd shortcuts (delete, copy, etc.) below can match
         }
 
         // Up/Down arrows always navigate clips; Shift extends selection
@@ -214,6 +225,13 @@ class KeyCaptureView: NSView {
         if let combo = settings.deleteShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
             if !inTextField || hasRealModifier {
                 onDelete?()
+                return true
+            }
+        }
+
+        if let combo = settings.saveImageShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {
+            if !inTextField || hasRealModifier {
+                onSaveImage?()
                 return true
             }
         }

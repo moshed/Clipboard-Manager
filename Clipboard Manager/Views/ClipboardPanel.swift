@@ -73,6 +73,17 @@ class ClipboardPanel: NSPanel {
         }
     }
 
+    override func orderOut(_ sender: Any?) {
+        let wasVisible = isVisible
+        super.orderOut(sender)
+        if wasVisible {
+            NotificationCenter.default.post(name: .panelDidClose, object: nil)
+            DispatchQueue.main.async {
+                AppDelegate.shared?.hidePlaceholderWindows()
+            }
+        }
+    }
+
     func centerOnActiveScreen() {
         let mouseLocation = NSEvent.mouseLocation
         let activeScreen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main

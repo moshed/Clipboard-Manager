@@ -1,5 +1,98 @@
 import AppKit
 import Foundation
+import CoreLocation
+
+/// Keeps the device's most recent coordinate cached so the synchronous token
+/// resolver can read it without blocking. Requests permission on first `start()`.
+final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+    static let shared = LocationProvider()
+
+    private let manager = CLLocationManager()
+    private(set) var lastCoordinate: CLLocationCoordinate2D?
+    private var started = false
+
+    /// Published so Settings can show the live authorization state.
+    @Published private(set) var authStatus: CLAuthorizationStatus = .notDetermined
+
+    private override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        authStatus = manager.authorizationStatus
+    }
+
+    /// Warm-up only: start caching location IF already authorized. Never prompts.
+    /// Safe to call during a paste or at launch.
+    func start() {
+        guard !started else { return }
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorized:
+            started = true
+            manager.startUpdatingLocation()
+        default:
+            break
+        }
+    }
+
+    /// Explicit user-initiated permission request. Must be called from an active
+    /// (frontmost) app context — macOS won't present the location prompt to a
+    /// background agent app. Brings the app forward first.
+    @MainActor
+    func requestAccess() {
+        let status = manager.authorizationStatus
+        NSApp.activate(ignoringOtherApps: true)
+        switch status {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorized:
+            started = true
+            manager.startUpdatingLocation()
+        case .denied, .restricted:
+            // Already decided against — send the user to the System Settings pane.
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices") {
+                NSWorkspace.shared.open(url)
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    /// Warm up location caching only if the user has already granted access —
+    /// never prompts. Call at launch so paste-time has a fresh fix ready.
+    func startIfAuthorized() {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorized:
+            start()
+        default:
+            break
+        }
+    }
+
+    /// "lat, lon" to 6 decimals, or nil if there's no fix yet / access denied.
+    func formattedLatLon() -> String? {
+        guard let c = lastCoordinate else { return nil }
+        return String(format: "%.6f, %.6f", c.latitude, c.longitude)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        if let loc = locations.last { lastCoordinate = loc.coordinate }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        authStatus = manager.authorizationStatus
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorized:
+            started = true
+            manager.startUpdatingLocation()
+        default:
+            break
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // Keep the last known coordinate; ignore transient errors.
+    }
+}
 
 enum SnippetTokenResolver {
     static func resolve(_ content: String, clipboardText: String? = nil) -> String {
@@ -40,6 +133,13 @@ enum SnippetTokenResolver {
             result = result.replacingOccurrences(of: "{{timestamp}}", with: ISO8601DateFormatter().string(from: Date()))
         }
 
+        // {{latlon}} — current device coordinates as "lat, lon"
+        if result.contains("{{latlon}}") {
+            LocationProvider.shared.start()
+            let value = LocationProvider.shared.formattedLatLon() ?? ""
+            result = result.replacingOccurrences(of: "{{latlon}}", with: value)
+        }
+
         // {{date:FORMAT}} — custom date format, e.g. {{date:yyyy/MM/dd}}, {{date:MMM d, yyyy}}
         if let regex = try? NSRegularExpression(pattern: #"\{\{date:([^}]+)\}\}"#) {
             while let match = regex.firstMatch(in: result, range: NSRange(result.startIndex..., in: result)) {
@@ -62,7 +162,7 @@ enum SnippetTokenResolver {
         if let regex = try? NSRegularExpression(pattern: #"\{\{date:([^}]+)\}\}"#) {
             stripped = regex.stringByReplacingMatches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped), withTemplate: "")
         }
-        for token in ["{{clipboard}}", "{{date}}", "{{time}}", "{{datetime}}", "{{timestamp}}"] {
+        for token in ["{{clipboard}}", "{{date}}", "{{time}}", "{{datetime}}", "{{timestamp}}", "{{latlon}}"] {
             stripped = stripped.replacingOccurrences(of: token, with: "")
         }
         return stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -92,6 +192,10 @@ enum SnippetTokenResolver {
                 return fmt.string(from: now)
             }),
             ("{{timestamp}}", { ISO8601DateFormatter().string(from: now) }),
+            ("{{latlon}}", {
+                LocationProvider.shared.start()
+                return LocationProvider.shared.formattedLatLon() ?? ""
+            }),
         ]
 
         for (token, resolver) in fixedTokens {

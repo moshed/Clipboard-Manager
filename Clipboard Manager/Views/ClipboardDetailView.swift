@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct ClipboardDetailView: View {
     let entry: ClipboardEntry
@@ -6,6 +7,9 @@ struct ClipboardDetailView: View {
     let onCopyFormatted: () -> Void
     var onDelete: (() -> Void)? = nil
     var onSaveSnippet: (() -> Void)? = nil
+
+    @Environment(\.modelContext) private var modelContext
+    @State private var loadedFullImage: NSImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,10 +68,8 @@ struct ClipboardDetailView: View {
 
             // Content area
             let _ = debugLogDetail("popover opened: type=\(entry.contentType) hasText=\(entry.textContent != nil) hasRTF=\(entry.rtfData != nil) textLen=\(entry.textContent?.count ?? 0)")
-            if (entry.contentType == .image || entry.contentType == .screenshot || entry.contentType == .file),
-               let data = entry.imageData, let nsImage = NSImage(data: data) {
-                ZoomableImageView(image: nsImage)
-                    .frame(maxHeight: 300)
+            if entry.contentType == .image || entry.contentType == .screenshot || entry.contentType == .file {
+                imagePreviewSection
             } else if entry.contentType == .rtf, let rtfData = entry.rtfData {
                 let height = rtfHeight(for: rtfData)
                 let _ = debugLogDetail("rtf path: height=\(Int(height))")
@@ -95,6 +97,36 @@ struct ClipboardDetailView: View {
             }
         }
         .background(Color.primary.opacity(0.02))
+    }
+
+    @ViewBuilder
+    private var imagePreviewSection: some View {
+        Group {
+            if let nsImage = loadedFullImage {
+                ZoomableImageView(image: nsImage)
+            } else if let data = entry.thumbnailData, let nsImage = NSImage(data: data) {
+                // Show thumbnail upscaled while full image loads
+                ZoomableImageView(image: nsImage)
+                    .opacity(0.6)
+                    .overlay(ProgressView().controlSize(.small))
+            }
+        }
+        .frame(minWidth: 320, minHeight: 320, idealHeight: 480, maxHeight: 600)
+        .task(id: entry.id) {
+            loadedFullImage = nil
+            let entryID = entry.id
+            let inlineData = entry.imageData
+            let context = modelContext
+            let loaded: NSImage? = await Task.detached(priority: .userInitiated) {
+                if let data = inlineData, let img = NSImage(data: data) { return img }
+                let blobData = await MainActor.run {
+                    ClipboardImageStore.fullData(for: entryID, context: context)
+                }
+                if let blobData, let img = NSImage(data: blobData) { return img }
+                return nil
+            }.value
+            loadedFullImage = loaded
+        }
     }
 }
 
@@ -238,43 +270,50 @@ struct SelectableRTFView: NSViewRepresentable {
 
 // MARK: - Zoomable Image (NSViewRepresentable with pinch support)
 
-struct ZoomableImageView: NSViewRepresentable {
+struct ZoomableImageView: View {
     let image: NSImage
+    @State private var magnify: CGFloat = 1.0
+    @State private var lastMagnify: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.allowsMagnification = true
-        scrollView.minMagnification = 1.0
-        scrollView.maxMagnification = 5.0
-        scrollView.magnification = 1.0
-
-        let imageView = NSImageView()
-        imageView.image = image
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.imageAlignment = .alignCenter
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-
-        scrollView.documentView = imageView
-
-        let clipView = scrollView.contentView
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: clipView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
-            imageView.widthAnchor.constraint(equalTo: clipView.widthAnchor),
-            imageView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
-        ])
-
-        return scrollView
-    }
-
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        if let imageView = nsView.documentView as? NSImageView {
-            imageView.image = image
+    var body: some View {
+        GeometryReader { geo in
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .scaleEffect(magnify)
+                .offset(offset)
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { v in
+                            magnify = max(1.0, min(5.0, lastMagnify * v.magnification))
+                            if magnify == 1.0 { offset = .zero; lastOffset = .zero }
+                        }
+                        .onEnded { _ in lastMagnify = magnify }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { v in
+                            guard magnify > 1.0 else { return }
+                            offset = CGSize(
+                                width: lastOffset.width + v.translation.width,
+                                height: lastOffset.height + v.translation.height
+                            )
+                        }
+                        .onEnded { _ in lastOffset = offset }
+                )
+                .onTapGesture(count: 2) {
+                    if magnify > 1.0 {
+                        magnify = 1.0; lastMagnify = 1.0
+                        offset = .zero; lastOffset = .zero
+                    } else {
+                        magnify = 2.0; lastMagnify = 2.0
+                    }
+                }
         }
+        .clipped()
     }
 }

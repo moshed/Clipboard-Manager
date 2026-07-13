@@ -6,5 +6,9 @@
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Clipboard Manager needs to communicate with Excel to detect non-contiguous row selections.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Clipboard Manager inserts your current latitude/longitude into snippets that use the {{latlon}} token.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>Clipboard Manager inserts your current latitude/longitude into snippets that use the {{latlon}} token.</string>
 </dict>
 </plist>

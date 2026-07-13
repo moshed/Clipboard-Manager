@@ -2,17 +2,17 @@
 
 macOS menu bar clipboard history app.
 
-## IMPORTANT: After Building — ALWAYS Quit and Reopen
-`/Applications/Clipboard Manager.app` is a **symlink** to the DerivedData build output. After every successful build, **always quit and reopen the app** so changes take effect:
+## IMPORTANT: After Building — ALWAYS Redeploy and Relaunch
+`/Applications/Clipboard Manager.app` is a **real copy**, NOT a symlink (it used to be one — verify with `ls -ld` before assuming). So building alone changes nothing the user sees: you must quit, replace the bundle, and reopen.
 ```bash
-kill -9 $(pgrep -x "Clipboard Manager") 2>/dev/null; sleep 0.5 && open "/Applications/Clipboard Manager.app"
+APP=~/Library/Developer/Xcode/DerivedData/Clipboard_Manager-enxbpizjncmbvoguyhpqnzumfbit/Build/Products/Debug/"Clipboard Manager.app"
+pkill -x "Clipboard Manager"; sleep 1
+rm -rf "/Applications/Clipboard Manager.app" && ditto "$APP" "/Applications/Clipboard Manager.app" && open "/Applications/Clipboard Manager.app"
 ```
-If the symlink is missing, recreate it:
-```bash
-ln -sf "/Users/moshe/Library/Developer/Xcode/DerivedData/Clipboard_Manager-enxbpizjncmbvoguyhpqnzumfbit/Build/Products/Debug/Clipboard Manager.app" "/Applications/Clipboard Manager.app"
-```
+`open` on a still-running instance just re-activates the STALE binary — always confirm the process is dead first.
 **Do NOT re-sign** with `codesign` — changing the signature invalidates the Accessibility permission (needed for Cmd+V paste). The Xcode build signature is sufficient.
-**Do NOT `rm -rf` + `cp -R`** — copying creates new inodes which also invalidates Accessibility permission.
+
+Also note: with Xcode 16, app code lives in `Clipboard Manager.debug.dylib`, **not** the small stub executable — grep the dylib when verifying a build actually contains your change.
 
 ## Architecture
 - **Type**: Menu bar app (LSUIElement, no Dock icon)
@@ -107,6 +107,14 @@ Clipboard Manager/
   - Without it, CGEvent posting silently fails (no error)
 - Use 0.20s delay after `prevApp.activate()` before posting Cmd+V
 - Virtual key code for V = `0x09`
+- **Accessibility silently revoked by entitlement/signature changes**: when the app's
+  entitlements change (e.g. adding `com.apple.security.personal-information.location` for
+  the `{{latlon}}` token), macOS drops the existing Accessibility grant. Symptom: paste
+  "fires" (`Cmd+V posted` logs ok) but nothing appears — capture still works, only the
+  synthetic keystroke is dead. Fix: re-grant in Accessibility (toggle off/on, or remove +
+  re-add) then relaunch. `postCmdV()` now guards with `AXIsProcessTrusted()` and calls
+  `promptForAccessibility()` (system prompt + deep link) instead of failing silently.
+  Diagnose with: log `AXIsProcessTrusted()` + clipboard contents in `postCmdV`.
 
 ### Self-Paste Detection
 - When copying from within the app, the ClipboardMonitor detects the pasteboard change
@@ -172,3 +180,31 @@ Clipboard Manager/
 ### Custom Date Token
 - `{{date:FORMAT}}` uses NSRegularExpression (not Swift regex literals — those cause parser errors in complex SwiftUI files)
 - Pattern: `\{\{date:([^}]+)\}\}` — capture group is the DateFormatter format string
+
+### Multi-Item Paste (Enter / Shift+Enter)
+- **Enter and Shift+Enter are NOT `onEnter` / `onShiftEnter`.** They are the *default key
+  combos* of the configurable **Copy Plain** (`Return`) and **Copy Formatted**
+  (`Shift+Return`) shortcuts, and `KeyEventHandler.handleKeyEvent` matches those
+  shortcut combos **first**, so `onEnter` / `onShiftEnter` never fire for them. Any change
+  to Enter behaviour must go through `onCopyPlain` / `onCopyFormatted` (both now just call
+  `pastePrimary()` / `pasteAlternate()`, and `onEnter`/`onShiftEnter` call the same two, so
+  either route works).
+- Selection order is tracked in `selectionOrder: [UUID]` alongside `selectedIDs: Set<UUID>`.
+  Cmd-click appends; shift-click / shift+arrow **replaces** it with list order (so a range
+  selection always pastes top-to-bottom). `selectedEntriesInOrder` resolves it and falls back
+  to list order for anything missing. Every place that mutates `selectedIDs` must also mutate
+  `selectionOrder` or the order silently degrades.
+- Separators: `multiPasteSeparator` (Enter) + `multiPasteAltSeparator` (Shift+Enter), each
+  with a `...CustomSeparator` companion. `SettingsManager.unescape` turns `\n` / `\t` / `\r`
+  into real characters — **required**, because the custom separator is a single-line
+  `TextField` and a literal newline can't be typed into it. Alt separator also supports
+  `"ask"`, which pops a numbered NSMenu (`SeparatorMenuTarget`) to choose per-paste.
+
+### Pasting Multiple Images
+- A pasteboard holding several image `NSPasteboardItem`s pastes as **only the first image**
+  in virtually every app (Mail included) — apps read item 0's types and stop.
+- **Solution**: for a multi-selection containing images (`multiPasteboardItems(for:)`), write
+  each image to a temp PNG under `NSTemporaryDirectory()/ClipboardManager/<uuid>.png` and put
+  it on the pasteboard as a **`.fileURL`** item (plus `.png`/`.tiff` on the same item). Mail,
+  Word, Notes and Finder all accept a multi-file paste and inline/attach every one.
+- Single-image paste still uses raw image data — don't route it through the file-URL path.

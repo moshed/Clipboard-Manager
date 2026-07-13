@@ -35,7 +35,9 @@ struct KeyCombo: Codable, Equatable {
     static let defaultToggle = KeyCombo(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | shiftKey))
     static let defaultCopyPlain = KeyCombo(keyCode: UInt32(kVK_Return), modifiers: 0)
     static let defaultCopyFormatted = KeyCombo(keyCode: UInt32(kVK_Return), modifiers: UInt32(shiftKey))
-    static let defaultDelete = KeyCombo(keyCode: UInt32(kVK_Delete), modifiers: UInt32(shiftKey))
+    static let defaultDelete = KeyCombo(keyCode: UInt32(kVK_Delete), modifiers: UInt32(cmdKey))
+    static let defaultExcelClean = KeyCombo(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey))
+    static let defaultSaveImage = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey))
     static let defaultExpand: KeyCombo? = nil
     static let none = KeyCombo(keyCode: UInt32.max, modifiers: UInt32.max)
 
@@ -114,6 +116,10 @@ class SettingsManager: ObservableObject {
         didSet { saveOptionalKeyCombo(searchShortcut, forKey: "searchShortcut") }
     }
 
+    @Published var filterShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(filterShortcut, forKey: "filterShortcut") }
+    }
+
     @Published var tabToggleShortcut: KeyCombo? {
         didSet { saveOptionalKeyCombo(tabToggleShortcut, forKey: "tabToggleShortcut") }
     }
@@ -139,8 +145,12 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(excelCopyAsText, forKey: "excelCopyAsText") }
     }
 
-    @Published var excelCleanNonContiguous: Bool {
-        didSet { UserDefaults.standard.set(excelCleanNonContiguous, forKey: "excelCleanNonContiguous") }
+    /// Global shortcut to copy the current Excel selection and strip non-contiguous gaps.
+    @Published var excelCleanShortcut: KeyCombo? {
+        didSet {
+            saveOptionalKeyCombo(excelCleanShortcut, forKey: "excelCleanShortcut")
+            onExcelCleanShortcutChanged?()
+        }
     }
 
     @Published var toggleShortcut: KeyCombo {
@@ -168,6 +178,25 @@ class SettingsManager: ObservableObject {
         didSet { saveOptionalKeyCombo(transformShortcut, forKey: "transformShortcut") }
     }
 
+    /// In-app shortcut to save the selected image entry(ies) to `imageSaveFolderURL`.
+    @Published var saveImageShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(saveImageShortcut, forKey: "saveImageShortcut") }
+    }
+
+    /// Folder where the "Save Image" action writes PNGs. nil → ~/Downloads.
+    @Published var imageSaveFolderPath: String? {
+        didSet { UserDefaults.standard.set(imageSaveFolderPath, forKey: "imageSaveFolderPath") }
+    }
+
+    /// Resolved destination folder for saved images (defaults to ~/Downloads).
+    var imageSaveFolderURL: URL {
+        if let p = imageSaveFolderPath, !p.isEmpty {
+            return URL(fileURLWithPath: p, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
+    }
+
     @Published var customTransformations: [CustomTransformation] {
         didSet {
             if let data = try? JSONEncoder().encode(customTransformations) {
@@ -180,7 +209,7 @@ class SettingsManager: ObservableObject {
         didSet { saveOptionalKeyCombo(pasteOrderedShortcut, forKey: "pasteOrderedShortcut") }
     }
 
-    /// "newline", "comma", "tab", "custom"
+    /// "newline", "comma", "semicolon", "space", "dash", "tab", "custom"
     @Published var multiPasteSeparator: String {
         didSet { UserDefaults.standard.set(multiPasteSeparator, forKey: "multiPasteSeparator") }
     }
@@ -189,16 +218,60 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(multiPasteCustomSeparator, forKey: "multiPasteCustomSeparator") }
     }
 
-    var resolvedSeparator: String {
-        switch multiPasteSeparator {
+    /// Separator used when pasting with Shift held (Shift+Enter).
+    @Published var multiPasteAltSeparator: String {
+        didSet { UserDefaults.standard.set(multiPasteAltSeparator, forKey: "multiPasteAltSeparator") }
+    }
+
+    @Published var multiPasteAltCustomSeparator: String {
+        didSet { UserDefaults.standard.set(multiPasteAltCustomSeparator, forKey: "multiPasteAltCustomSeparator") }
+    }
+
+    static func separatorText(_ kind: String, custom: String) -> String {
+        switch kind {
         case "comma": return ", "
+        case "semicolon": return "; "
+        case "space": return " "
+        case "dash": return " - "
         case "tab": return "\t"
-        case "custom": return multiPasteCustomSeparator
+        case "custom": return unescape(custom)
         default: return "\n"
         }
     }
 
+    /// A custom separator is typed into a single-line field, so a newline can only be
+    /// expressed as an escape. Turn `\n` / `\t` / `\r` / `\\` into the real characters.
+    static func unescape(_ s: String) -> String {
+        var out = ""
+        var iterator = s.makeIterator()
+        while let c = iterator.next() {
+            guard c == "\\", let next = iterator.next() else {
+                out.append(c)
+                continue
+            }
+            switch next {
+            case "n": out.append("\n")
+            case "t": out.append("\t")
+            case "r": out.append("\r")
+            case "\\": out.append("\\")
+            default:
+                out.append(c)
+                out.append(next)
+            }
+        }
+        return out
+    }
+
+    var resolvedSeparator: String {
+        Self.separatorText(multiPasteSeparator, custom: multiPasteCustomSeparator)
+    }
+
+    var resolvedAltSeparator: String {
+        Self.separatorText(multiPasteAltSeparator, custom: multiPasteAltCustomSeparator)
+    }
+
     var onToggleShortcutChanged: (() -> Void)?
+    var onExcelCleanShortcutChanged: (() -> Void)?
     var onDismissSettingChanged: (() -> Void)?
 
     private init() {
@@ -210,19 +283,28 @@ class SettingsManager: ObservableObject {
         self.instantTyping = UserDefaults.standard.object(forKey: "instantTyping") as? Bool ?? true
         self.toolbarDisplay = UserDefaults.standard.string(forKey: "toolbarDisplay") ?? "both"
         self.searchShortcut = SettingsManager.loadKeyCombo(forKey: "searchShortcut") ?? KeyCombo(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(cmdKey))
+        self.filterShortcut = SettingsManager.loadKeyCombo(forKey: "filterShortcut") ?? KeyCombo(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(cmdKey | shiftKey))
         self.tabToggleShortcut = SettingsManager.loadKeyCombo(forKey: "tabToggleShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: 0)
         self.tabBackwardShortcut = SettingsManager.loadKeyCombo(forKey: "tabBackwardShortcut") ?? KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(shiftKey))
         self.snippetPreviewLines = UserDefaults.standard.object(forKey: "snippetPreviewLines") as? Int ?? 2
         self.excelCleanup = UserDefaults.standard.object(forKey: "excelCleanup") as? Bool ?? true
         self.excelCopyAsText = UserDefaults.standard.object(forKey: "excelCopyAsText") as? Bool ?? true
-        self.excelCleanNonContiguous = UserDefaults.standard.object(forKey: "excelCleanNonContiguous") as? Bool ?? true
+        self.excelCleanShortcut = SettingsManager.loadKeyCombo(forKey: "excelCleanShortcut") ?? .defaultExcelClean
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
         self.copyPlainShortcut = SettingsManager.loadKeyCombo(forKey: "copyPlainShortcut") ?? .defaultCopyPlain
         self.copyFormattedShortcut = SettingsManager.loadKeyCombo(forKey: "copyFormattedShortcut") ?? .defaultCopyFormatted
-        self.deleteShortcut = SettingsManager.loadKeyCombo(forKey: "deleteShortcut") ?? .defaultDelete
+        let loadedDelete = SettingsManager.loadKeyCombo(forKey: "deleteShortcut")
+        let oldDefaultDelete = KeyCombo(keyCode: UInt32(kVK_Delete), modifiers: UInt32(shiftKey))
+        if loadedDelete == oldDefaultDelete {
+            self.deleteShortcut = .defaultDelete
+        } else {
+            self.deleteShortcut = loadedDelete ?? .defaultDelete
+        }
         self.expandShortcut = SettingsManager.loadKeyCombo(forKey: "expandShortcut")
         self.transformShortcut = SettingsManager.loadKeyCombo(forKey: "transformShortcut")
+        self.saveImageShortcut = SettingsManager.loadKeyCombo(forKey: "saveImageShortcut") ?? .defaultSaveImage
+        self.imageSaveFolderPath = UserDefaults.standard.string(forKey: "imageSaveFolderPath")
         if let data = UserDefaults.standard.data(forKey: "customTransformations"),
            let transforms = try? JSONDecoder().decode([CustomTransformation].self, from: data) {
             // Ensure built-ins exist (for existing users upgrading)
@@ -239,6 +321,8 @@ class SettingsManager: ObservableObject {
         self.pasteOrderedShortcut = SettingsManager.loadKeyCombo(forKey: "pasteOrderedShortcut")
         self.multiPasteSeparator = UserDefaults.standard.string(forKey: "multiPasteSeparator") ?? "newline"
         self.multiPasteCustomSeparator = UserDefaults.standard.string(forKey: "multiPasteCustomSeparator") ?? " | "
+        self.multiPasteAltSeparator = UserDefaults.standard.string(forKey: "multiPasteAltSeparator") ?? "comma"
+        self.multiPasteAltCustomSeparator = UserDefaults.standard.string(forKey: "multiPasteAltCustomSeparator") ?? " | "
     }
 
     private func saveOptionalKeyCombo(_ combo: KeyCombo?, forKey key: String) {

@@ -31,7 +31,63 @@ struct FilterPopoverView: View {
     @Binding var typeFilter: Set<ContentType>
     let availableApps: [(bundleID: String, name: String)]
 
+    @State private var focusedIndex: Int = 0
+    @FocusState private var isContainerFocused: Bool
+
+    private var actions: [() -> Void] {
+        var list: [() -> Void] = []
+        // Date
+        for filter in DateFilter.allCases {
+            list.append({ dateFilter = filter })
+        }
+        // Type: All/None + each type
+        list.append({
+            if typeFilter.count == ContentType.allCases.count {
+                typeFilter = []
+            } else {
+                typeFilter = Set(ContentType.allCases)
+            }
+        })
+        for type in ContentType.allCases {
+            list.append({
+                if typeFilter.contains(type) {
+                    typeFilter.remove(type)
+                } else {
+                    typeFilter.insert(type)
+                }
+            })
+        }
+        // App
+        if !availableApps.isEmpty {
+            list.append({ appFilter = [] })
+            for app in availableApps {
+                let bid = app.bundleID
+                list.append({
+                    if appFilter.contains(bid) {
+                        appFilter.remove(bid)
+                    } else {
+                        appFilter.insert(bid)
+                    }
+                })
+            }
+        }
+        // Clear All
+        if dateFilter != .all || !appFilter.isEmpty || !typeFilter.isEmpty {
+            list.append({
+                dateFilter = .all
+                appFilter = []
+                typeFilter = []
+            })
+        }
+        return list
+    }
+
     var body: some View {
+        let dateBase = 0
+        let typeBase = dateBase + DateFilter.allCases.count
+        let appBase = typeBase + 1 + ContentType.allCases.count
+        let clearBase = appBase + (availableApps.isEmpty ? 0 : 1 + availableApps.count)
+
         VStack(alignment: .leading, spacing: 12) {
             // Date section
             VStack(alignment: .leading, spacing: 6) {
@@ -40,10 +96,11 @@ struct FilterPopoverView: View {
                     .foregroundStyle(.secondary)
 
                 FlowLayout(spacing: 4) {
-                    ForEach(DateFilter.allCases, id: \.self) { filter in
+                    ForEach(Array(DateFilter.allCases.enumerated()), id: \.element) { idx, filter in
                         FilterChip(
                             label: filter.rawValue,
-                            isSelected: dateFilter == filter
+                            isSelected: dateFilter == filter,
+                            isFocused: focusedIndex == dateBase + idx
                         ) {
                             dateFilter = filter
                         }
@@ -60,10 +117,10 @@ struct FilterPopoverView: View {
                     .foregroundStyle(.secondary)
 
                 FlowLayout(spacing: 4) {
-                    // All/None toggle: selects all types or clears all
                     FilterChip(
                         label: typeFilter.count == ContentType.allCases.count ? "None" : "All",
-                        isSelected: false
+                        isSelected: false,
+                        isFocused: focusedIndex == typeBase
                     ) {
                         if typeFilter.count == ContentType.allCases.count {
                             typeFilter = []
@@ -71,11 +128,13 @@ struct FilterPopoverView: View {
                             typeFilter = Set(ContentType.allCases)
                         }
                     }
-                    ForEach(ContentType.allCases, id: \.self) { type in
+
+                    ForEach(Array(ContentType.allCases.enumerated()), id: \.element) { idx, type in
                         FilterChip(
                             label: type.label,
                             icon: type.systemImage,
-                            isSelected: typeFilter.contains(type)
+                            isSelected: typeFilter.contains(type),
+                            isFocused: focusedIndex == typeBase + 1 + idx
                         ) {
                             if typeFilter.contains(type) {
                                 typeFilter.remove(type)
@@ -96,21 +155,28 @@ struct FilterPopoverView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    let totalRows = availableApps.count + 1 // +1 for "All Apps"
+                    let totalRows = availableApps.count + 1
                     let rowHeight: CGFloat = 28
-                    let maxVisibleRows = min(totalRows, 6) // up to 5 apps + "All Apps"
+                    let maxVisibleRows = min(totalRows, 6)
                     let listHeight = CGFloat(maxVisibleRows) * rowHeight
 
                     ScrollView {
                         VStack(spacing: 2) {
-                            FilterAppRow(name: "All Apps", icon: nil, isSelected: appFilter.isEmpty) {
+                            FilterAppRow(
+                                name: "All Apps",
+                                icon: nil,
+                                isSelected: appFilter.isEmpty,
+                                isFocused: focusedIndex == appBase
+                            ) {
                                 appFilter = []
                             }
-                            ForEach(availableApps, id: \.bundleID) { app in
+
+                            ForEach(Array(availableApps.enumerated()), id: \.element.bundleID) { idx, app in
                                 FilterAppRow(
                                     name: app.name,
                                     icon: AppIconResolver.shared.icon(forBundleID: app.bundleID),
-                                    isSelected: appFilter.contains(app.bundleID)
+                                    isSelected: appFilter.contains(app.bundleID),
+                                    isFocused: focusedIndex == appBase + 1 + idx
                                 ) {
                                     if appFilter.contains(app.bundleID) {
                                         appFilter.remove(app.bundleID)
@@ -140,12 +206,47 @@ struct FilterPopoverView: View {
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundStyle(.red)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(focusedIndex == clearBase ? Color.red.opacity(0.15) : Color.clear)
+                    )
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(12)
         .frame(width: 240)
+        .focusable()
+        .focused($isContainerFocused)
+        .focusEffectDisabled()
+        .onAppear {
+            focusedIndex = 0
+            DispatchQueue.main.async { isContainerFocused = true }
+        }
+        .onKeyPress(.downArrow) {
+            let count = actions.count
+            guard count > 0 else { return .ignored }
+            focusedIndex = (focusedIndex + 1) % count
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            let count = actions.count
+            guard count > 0 else { return .ignored }
+            focusedIndex = (focusedIndex - 1 + count) % count
+            return .handled
+        }
+        .onKeyPress(.return) {
+            guard focusedIndex < actions.count else { return .ignored }
+            actions[focusedIndex]()
+            return .handled
+        }
+        .onKeyPress(.space) {
+            guard focusedIndex < actions.count else { return .ignored }
+            actions[focusedIndex]()
+            return .handled
+        }
     }
 }
 
@@ -153,6 +254,7 @@ struct FilterChip: View {
     let label: String
     var icon: String? = nil
     let isSelected: Bool
+    var isFocused: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -173,7 +275,10 @@ struct FilterChip: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                    .strokeBorder(
+                        isFocused ? Color.accentColor : (isSelected ? Color.accentColor.opacity(0.3) : Color.clear),
+                        lineWidth: isFocused ? 1.5 : 1
+                    )
             )
             .foregroundStyle(isSelected ? Color.accentColor : .primary)
         }
@@ -185,6 +290,7 @@ struct FilterAppRow: View {
     let name: String
     let icon: NSImage?
     let isSelected: Bool
+    var isFocused: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -214,7 +320,7 @@ struct FilterAppRow: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .fill(isFocused ? Color.accentColor.opacity(0.2) : (isSelected ? Color.accentColor.opacity(0.1) : Color.clear))
             )
         }
         .buttonStyle(.plain)

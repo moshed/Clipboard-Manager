@@ -46,10 +46,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupHotkey()
         setupSnippetHotkeys()
         trackFrontmostApp()
+        suppressPlaceholderWindows()
+
+        // Warm up location for the {{latlon}} snippet token if already authorized
+        // (never prompts at launch — first opt-in happens via the editor chip).
+        LocationProvider.shared.startIfAuthorized()
 
         // Preload SF Symbols catalog on background thread
         DispatchQueue.global(qos: .utility).async {
             SFSymbolLoader.shared.load()
+        }
+
+        // Backfill: move legacy inline imageData into ClipboardImageBlob + thumbnailData
+        Task.detached(priority: .utility) { [container = modelContainer!] in
+            await Self.migrateInlineImagesToBlobs(container: container)
         }
 
         NotificationCenter.default.addObserver(forName: .snippetHotkeysChanged, object: nil, queue: .main) { [weak self] _ in
@@ -65,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let config = ModelConfiguration(url: storeURL)
         do {
-            modelContainer = try ModelContainer(for: ClipboardEntry.self, SavedSnippet.self, configurations: config)
+            modelContainer = try ModelContainer(for: ClipboardEntry.self, ClipboardImageBlob.self, SavedSnippet.self, configurations: config)
         } catch {
             // Migration failed — delete store files and retry
             let fm = FileManager.default
@@ -83,11 +93,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             }
             do {
-                modelContainer = try ModelContainer(for: ClipboardEntry.self, SavedSnippet.self, configurations: config)
+                modelContainer = try ModelContainer(for: ClipboardEntry.self, ClipboardImageBlob.self, SavedSnippet.self, configurations: config)
             } catch {
                 fatalError("Failed to create ModelContainer after reset: \(error)")
             }
         }
+    }
+
+    /// Walks legacy entries with inline imageData and moves them into ClipboardImageBlob
+    /// while populating a small thumbnailData on the entry. Runs in batches with yields
+    /// so the UI stays responsive during the migration of large stores.
+    private static func migrateInlineImagesToBlobs(container: ModelContainer) async {
+        let context = ModelContext(container)
+        let batchSize = 25
+        var total = 0
+        while !Task.isCancelled {
+            var descriptor = FetchDescriptor<ClipboardEntry>(
+                predicate: #Predicate { $0.imageData != nil }
+            )
+            descriptor.fetchLimit = batchSize
+            guard let batch = try? context.fetch(descriptor), !batch.isEmpty else { break }
+            for entry in batch {
+                guard let data = entry.imageData else { continue }
+                if entry.thumbnailData == nil {
+                    entry.thumbnailData = ClipboardMonitor.makeThumbnail(from: data)
+                }
+                // Insert blob if one doesn't already exist for this id
+                let entryID = entry.id
+                var blobCheck = FetchDescriptor<ClipboardImageBlob>(
+                    predicate: #Predicate { $0.id == entryID }
+                )
+                blobCheck.fetchLimit = 1
+                if (try? context.fetch(blobCheck))?.isEmpty != false {
+                    context.insert(ClipboardImageBlob(id: entryID, data: data))
+                }
+                entry.imageData = nil
+                total += 1
+            }
+            try? context.save()
+            try? await Task.sleep(nanoseconds: 80_000_000)
+        }
+        NSLog("[ClipboardManager] Image migration finished: moved %d entries to blobs", total)
     }
 
     private func setupStatusItem() {
@@ -115,6 +161,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func setupHotkey() {
         hotkeyManager = HotkeyManager { [weak self] in
             self?.togglePanelCentered()
+        }
+        hotkeyManager?.setupExcelCleanHotkey { [weak self] in
+            MainActor.assumeIsolated {
+                self?.clipboardMonitor?.cleanExcelSelection()
+            }
         }
     }
 
@@ -266,18 +317,65 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         debugLog("paste: activating \(prevApp.localizedName ?? "?") pid=\(prevApp.processIdentifier)")
-        prevApp.activate()
+        activateAndPostCmdV(targetApp: prevApp)
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-            let source = CGEventSource(stateID: .combinedSessionState)
-            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-            keyDown?.flags = .maskCommand
-            keyUp?.flags = .maskCommand
-            keyDown?.post(tap: .cghidEventTap)
-            keyUp?.post(tap: .cghidEventTap)
-            debugLog("paste: Cmd+V posted, keyDown=\(keyDown != nil ? "ok" : "nil"), keyUp=\(keyUp != nil ? "ok" : "nil")")
+    /// Activate the target app and post Cmd+V as soon as activation is confirmed
+    /// (typically 10–30ms via didActivateApplicationNotification, with a 0.20s fallback).
+    private func activateAndPostCmdV(targetApp: NSRunningApplication) {
+        // If already frontmost, skip the wait entirely
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
+            postCmdV()
+            return
         }
+
+        targetApp.activate()
+
+        var fired = false
+        var observer: NSObjectProtocol?
+        let fire = { [weak self] in
+            guard !fired else { return }
+            fired = true
+            if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+            self?.postCmdV()
+        }
+
+        observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier == targetApp.processIdentifier else { return }
+            fire()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { fire() }
+    }
+
+    private func postCmdV() {
+        // If Accessibility was revoked (e.g. after a signature/entitlement change), the
+        // synthetic Cmd+V silently does nothing — surface that instead of failing quietly.
+        if !AXIsProcessTrusted() {
+            debugLog("paste: ABORT — Accessibility not trusted; prompting user")
+            promptForAccessibility()
+            return
+        }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        keyDown?.flags = .maskCommand
+        keyUp?.flags = .maskCommand
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
+        debugLog("paste: Cmd+V posted, keyDown=\(keyDown != nil ? "ok" : "nil"), keyUp=\(keyUp != nil ? "ok" : "nil")")
+    }
+
+    /// Trigger the system Accessibility prompt (with the "Open System Settings" deep link).
+    /// Accessibility can be silently revoked when the app's signature/entitlements change.
+    private func promptForAccessibility() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
     private func setupSnippetHotkeys() {
@@ -320,9 +418,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         DispatchQueue.main.async { [weak self] in
             let menu = NSMenu()
-            for child in children {
-                let title = child.title.isEmpty ? String(child.content.prefix(40)) : child.title
-                let item = NSMenuItem(title: title, action: #selector(self?.folderMenuItemClicked(_:)), keyEquivalent: "")
+            for (index, child) in children.enumerated() {
+                let baseTitle = child.title.isEmpty ? String(child.content.prefix(40)) : child.title
+                // Number the first 9 items and bind the bare number key to insert them.
+                let number = index + 1
+                let title = number <= 9 ? "\(number)   \(baseTitle)" : baseTitle
+                let keyEquiv = number <= 9 ? "\(number)" : ""
+                let item = NSMenuItem(title: title, action: #selector(self?.folderMenuItemClicked(_:)), keyEquivalent: keyEquiv)
+                item.keyEquivalentModifierMask = []  // press the number alone, no ⌘
                 item.target = self
                 // Store both content and rtfData
                 item.representedObject = SnippetPasteData(content: child.content, rtfData: child.rtfData, matchDestinationFont: child.matchDestinationFont)
@@ -379,17 +482,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Paste into the current frontmost app (panel isn't open for global hotkey)
         guard let frontApp = previousApp ?? NSWorkspace.shared.frontmostApplication else { return }
-        frontApp.activate()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            let source = CGEventSource(stateID: .combinedSessionState)
-            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-            keyDown?.flags = .maskCommand
-            keyUp?.flags = .maskCommand
-            keyDown?.post(tap: .cghidEventTap)
-            keyUp?.post(tap: .cghidEventTap)
-        }
+        activateAndPostCmdV(targetApp: frontApp)
     }
 
     /// Insert a snippet from the panel UI (with panel dismissal)
@@ -431,15 +524,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Continuously track the frontmost app so previousApp is always accurate,
     /// even when the user switches desktops/spaces before invoking the panel.
+    private static let excelBundleID = "com.microsoft.Excel"
+
     private func trackFrontmostApp() {
+        // Set initial Excel-clean hotkey state based on what's frontmost right now.
+        hotkeyManager?.setExcelCleanHotkeyActive(
+            NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.excelBundleID
+        )
+
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
-            self?.previousApp = app
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            // Scope the Excel-clean hotkey to Excel only, so its combo (⌘⌥C) passes
+            // through to Finder ("Copy as Pathname") and every other app untouched.
+            // Ignore activations of our own (non-activating) app so the state sticks while in Excel.
+            if app.bundleIdentifier != Bundle.main.bundleIdentifier {
+                self?.hotkeyManager?.setExcelCleanHotkeyActive(app.bundleIdentifier == Self.excelBundleID)
+                self?.previousApp = app
+            }
+        }
+    }
+
+    func closePanel() {
+        panel?.orderOut(nil)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    /// SwiftUI's `Window("", id: "hidden")` placeholder scene can be surfaced by AppKit
+    /// when the panel is dismissed (e.g. via Escape). Hide it at launch and after every
+    /// panel close. Identifies the hidden window by its empty title + zero-ish size,
+    /// to avoid touching popovers, status menus, or the settings window.
+    func hidePlaceholderWindows() {
+        for w in NSApp.windows {
+            guard w !== panel, w !== settingsWindow else { continue }
+            if w.isVisible && w.className.contains("SwiftUI") {
+                w.orderOut(nil)
+            }
+        }
+    }
+
+    private func suppressPlaceholderWindows() {
+        // One-shot hide right after launch, once SwiftUI has created its scenes.
+        DispatchQueue.main.async { [weak self] in
+            self?.hidePlaceholderWindows()
         }
     }
 
@@ -462,6 +595,7 @@ extension Notification.Name {
     static let openSettings = Notification.Name("openSettings")
 
     static let panelDidOpen = Notification.Name("panelDidOpen")
+    static let panelDidClose = Notification.Name("panelDidClose")
     static let panelEscapePressed = Notification.Name("panelEscapePressed")
     static let snippetHotkeysChanged = Notification.Name("snippetHotkeysChanged")
     static let snippetExpandFolder = Notification.Name("snippetExpandFolder")
