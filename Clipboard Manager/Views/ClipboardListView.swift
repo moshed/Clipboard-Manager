@@ -660,10 +660,18 @@ struct ClipboardListView: View {
         }
     }
 
-    /// Pasteboard items for a *multi-item* paste. Apps almost universally ignore all but
-    /// the first item's image data, so images are spilled to temp PNGs and carried as file
-    /// URLs — Mail/Finder/Word all accept a multi-file paste and inline them.
+    /// Pasteboard items for a *multi-item* paste. Images are spilled to temp PNGs and carried
+    /// as **file URLs only** — an item that also carries `.png`/`.tiff` makes readers treat the
+    /// whole pasteboard as a single image and take just the first one (verified in Mail).
     private func multiPasteboardItems(for entry: ClipboardEntry) -> [NSPasteboardItem] {
+        if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+            return paths.compactMap { path in
+                guard FileManager.default.fileExists(atPath: path) else { return nil }
+                let item = NSPasteboardItem()
+                item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+                return item
+            }
+        }
         guard entry.contentType == .image || entry.contentType == .screenshot,
               let data = fullImageData(for: entry) else {
             return pasteboardItems(for: entry)
@@ -675,11 +683,6 @@ struct ClipboardListView: View {
 
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
-        item.setData(data, forType: .png)
-        if let rep = NSBitmapImageRep(data: data),
-           let tiff = rep.representation(using: .tiff, properties: [:]) {
-            item.setData(tiff, forType: .tiff)
-        }
         return [item]
     }
 
