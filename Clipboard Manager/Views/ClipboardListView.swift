@@ -804,6 +804,18 @@ struct ClipboardListView: View {
 
     /// Paste multiple items in the order they were selected, joined with `separator`
     /// (defaults to the separator configured in Settings).
+    /// Text an entry contributes to a joined multi-paste. Images/files fall back to their
+    /// source URL or file path so a mixed selection still pastes as usable text.
+    private func joinableText(for entry: ClipboardEntry) -> String? {
+        if let text = entry.textContent, !text.isEmpty { return text }
+        if let ocr = entry.ocrText, !ocr.isEmpty { return ocr }
+        if entry.contentType == .file, let paths = entry.filePaths, !paths.isEmpty {
+            return paths.joined(separator: "\n")
+        }
+        if let url = entry.sourceURL, !url.isEmpty { return url }
+        return nil
+    }
+
     private func copyOrderedMultiple(_ entries: [ClipboardEntry], separator: String? = nil) {
         if entries.count == 1 {
             copyPlain(entries[0])
@@ -813,13 +825,16 @@ struct ClipboardListView: View {
         let pb = NSPasteboard.general
         pb.clearContents()
 
-        if entries.contains(where: { isNonTextEntry($0) }) {
+        // Only spill to separate file/image pasteboard items when EVERY item is a
+        // non-text image/file. Any text or link in the mix would otherwise be written as
+        // its own item, and web/text fields read only the first item — so a link
+        // selection would paste just one. Mixed/text selections go out as one joined string.
+        let allNonText = entries.allSatisfy { isNonTextEntry($0) }
+        if allNonText {
             pb.writeObjects(entries.flatMap { multiPasteboardItems(for: $0) })
         } else {
             let sep = separator ?? settings.resolvedSeparator
-            let combined = entries.compactMap { entry -> String? in
-                entry.textContent ?? entry.ocrText
-            }.joined(separator: sep)
+            let combined = entries.compactMap { joinableText(for: $0) }.joined(separator: sep)
             pb.setString(combined, forType: .string)
         }
         if let first = entries.first { showCopiedFeedback(first) }
