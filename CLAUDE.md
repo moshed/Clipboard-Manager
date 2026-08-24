@@ -208,3 +208,25 @@ Clipboard Manager/
   it on the pasteboard as a **`.fileURL`** item (plus `.png`/`.tiff` on the same item). Mail,
   Word, Notes and Finder all accept a multi-file paste and inline/attach every one.
 - Single-image paste still uses raw image data — don't route it through the file-URL path.
+
+### Typing Text Directly (snippets) — and the modifier-leak trap
+- Plain-text snippets are **typed** with `CGEvent.keyboardSetUnicodeString`, not pasted, so
+  the clipboard is never touched (no snapshot/restore, no paste race). Rich/formatted
+  snippets still must go through the pasteboard — typing can't carry formatting.
+- **The trap that cost hours**: a typed event is built with `virtualKey: 0`, which is the
+  **`a` key**. With `CGEventSource(stateID: .combinedSessionState)` the event merges with the
+  **physical** keyboard state, so while the user is still holding a snippet hotkey's
+  modifiers (⌘⌥⌃ for the date snippet) the very first typed keystroke is delivered as
+  **⌘⌥⌃A** — which fired Window Manager's "cascade all windows" hotkey. Symptom: "my date
+  shortcut cascades my windows."
+- **Fix**: use `CGEventSource(stateID: .privateState)` **and** set `event.flags = []` on both
+  the keyDown and keyUp of every chunk. Never use the combined source for typing.
+- **Diagnosing it**: don't trust a synthetic keypress. macOS frequently refuses to let
+  simulated key events trigger **global (Carbon) hotkeys** — the ability comes and goes, so a
+  "no cascade" result can be a dead test rig, not a fix. **Always run a control** (synthesize a
+  hotkey you know works and confirm it fires) before believing any negative result. What *is*
+  reliable is a `CGEvent.tapCreate` listen-only tap that reports the `flags` on the events you
+  post — that measures the real delivered event and needs no hotkey dispatch.
+- A conflicting hotkey in another app is worth ruling out, but check each app's OWN log/config
+  for what it actually registered. Here neither BetterTouchTool nor Window Manager had `;`
+  bound at all — the caller was this app the whole time.
