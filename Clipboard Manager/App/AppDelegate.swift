@@ -304,7 +304,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// Dismiss panel, switch to previous app, and simulate Cmd+V to paste
-    func pasteIntoPreviousApp() {
+    func pasteIntoPreviousApp(completion: (() -> Void)? = nil) {
         debugLog("pasteIntoPreviousApp called")
         guard let panel = panel else {
             debugLog("paste: panel is nil, aborting")
@@ -317,15 +317,48 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         debugLog("paste: activating \(prevApp.localizedName ?? "?") pid=\(prevApp.processIdentifier)")
-        activateAndPostCmdV(targetApp: prevApp)
+        activateAndPostCmdV(targetApp: prevApp, completion: completion)
     }
 
-    /// Activate the target app and post Cmd+V as soon as activation is confirmed
+    /// Snapshot every type currently on the general pasteboard, so a transient paste
+    /// (e.g. a snippet) can put the user's real clipboard back afterward.
+    private func snapshotPasteboard() -> [(NSPasteboard.PasteboardType, Data)] {
+        let pb = NSPasteboard.general
+        return (pb.types ?? []).compactMap { type in
+            pb.data(forType: type).map { (type, $0) }
+        }
+    }
+
+    /// Restore a snapshot taken by `snapshotPasteboard()`. Flags the monitor so the
+    /// restore isn't recorded as a new clipboard entry.
+    private func restorePasteboard(_ snapshot: [(NSPasteboard.PasteboardType, Data)]) {
+        clipboardMonitor?.snippetPasteFlag = true
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        guard !snapshot.isEmpty else { return }
+        pb.declareTypes(snapshot.map { $0.0 }, owner: nil)
+        for (type, data) in snapshot {
+            pb.setData(data, forType: type)
+        }
+    }
+
+    /// Restore the saved clipboard after a snippet paste, once the target app has consumed
+    /// the Cmd+V. The delay must comfortably outlast the app's paste — restoring too early
+    /// races the paste and the app ends up inserting the OLD clipboard instead of the
+    /// snippet (seen as "the date shortcut pasted my clipboard"). 0.6s clears every app
+    /// tested; the synthetic Cmd+V is virtually always consumed well within it.
+    private func restoreClipboardAfterPaste(_ snapshot: [(NSPasteboard.PasteboardType, Data)]) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.restorePasteboard(snapshot)
+        }
+    }
+
+    /// Activate the target app and run `action` as soon as activation is confirmed
     /// (typically 10–30ms via didActivateApplicationNotification, with a 0.20s fallback).
-    private func activateAndPostCmdV(targetApp: NSRunningApplication) {
+    private func activate(_ targetApp: NSRunningApplication, then action: @escaping () -> Void) {
         // If already frontmost, skip the wait entirely
         if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
-            postCmdV()
+            action()
             return
         }
 
@@ -333,11 +366,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         var fired = false
         var observer: NSObjectProtocol?
-        let fire = { [weak self] in
+        let fire = {
             guard !fired else { return }
             fired = true
             if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-            self?.postCmdV()
+            action()
         }
 
         observer = NSWorkspace.shared.notificationCenter.addObserver(
@@ -351,6 +384,59 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { fire() }
+    }
+
+    /// Activate the target app and post Cmd+V once it is frontmost.
+    /// `completion` runs right after Cmd+V is posted — used to restore the clipboard.
+    private func activateAndPostCmdV(targetApp: NSRunningApplication, completion: (() -> Void)? = nil) {
+        activate(targetApp) { [weak self] in
+            self?.postCmdV()
+            completion?()
+        }
+    }
+
+    /// Activate the target app and "type" a plain-text string directly via synthetic
+    /// key events — no clipboard involved, so nothing to save/restore and no paste race.
+    /// Used for plain snippets (e.g. {{date}}); rich/formatted snippets still paste.
+    private func activateAndType(targetApp: NSRunningApplication, text: String) {
+        activate(targetApp) { [weak self] in
+            self?.typeText(text)
+        }
+    }
+
+    /// Insert `text` as if typed, using CGEvent Unicode strings (chunked — a single event
+    /// carries only a short string). Requires the same Accessibility grant as Cmd+V.
+    private func typeText(_ text: String) {
+        if !AXIsProcessTrusted() {
+            debugLog("type: ABORT — Accessibility not trusted; prompting user")
+            promptForAccessibility()
+            return
+        }
+        // Use a private event source so the events do NOT merge with the physical keyboard
+        // state. Otherwise, while the user is still holding the snippet hotkey's modifiers
+        // (e.g. ⌘⌥⌃ for a date snippet), each typed event — which uses virtualKey 0 (the
+        // "a" key) — would inherit those modifiers and read as ⌘⌥⌃A, firing OTHER apps'
+        // global hotkeys (this fired Window Manager's ⌘⌥⌃A "cascade all" action). We also
+        // clear the flags explicitly on every event so no modifier ever leaks in.
+        let source = CGEventSource(stateID: .privateState)
+        let utf16 = Array(text.utf16)
+        let chunkSize = 16
+        var i = 0
+        while i < utf16.count {
+            let end = min(i + chunkSize, utf16.count)
+            var chunk = Array(utf16[i..<end])
+            if let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
+                down.flags = []
+                down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+                up.flags = []
+                up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+                up.post(tap: .cghidEventTap)
+            }
+            i = end
+        }
     }
 
     private func postCmdV() {
@@ -453,19 +539,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func pasteSnippetContent(_ content: String, rtfData: Data? = nil, matchDestinationFont: Bool = true) {
-        // Set a flag so the clipboard monitor ignores this change
+        let savedClipboard = NSPasteboard.general.string(forType: .string) ?? ""
+        let needsRTF = rtfData != nil && !SnippetTokenResolver.isTokenOnly(content) && !matchDestinationFont
+
+        // Paste into the current frontmost app (panel isn't open for global hotkey)
+        guard let frontApp = previousApp ?? NSWorkspace.shared.frontmostApplication else { return }
+
+        if !needsRTF {
+            // Plain text → type it directly. No clipboard touched: instant, no restore, no race.
+            let resolved = SnippetTokenResolver.resolve(content, clipboardText: savedClipboard)
+            activateAndType(targetApp: frontApp, text: resolved)
+            return
+        }
+
+        // Rich formatting must go through the pasteboard, so snapshot + restore the clipboard.
         clipboardMonitor?.snippetPasteFlag = true
-
         let pb = NSPasteboard.general
-        // Capture clipboard BEFORE clearing so {{clipboard}} token can use it
-        let savedClipboard = pb.string(forType: .string) ?? ""
+        let snapshot = snapshotPasteboard()
         pb.clearContents()
-
-        let isTokenOnly = SnippetTokenResolver.isTokenOnly(content)
-
-        if let rtfData, !isTokenOnly, !matchDestinationFont,
-           let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            // Resolve tokens in RTF — preserves custom font/size
+        if let rtfData, let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
             let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
             for (range, replacement) in tokens.reversed() {
                 attrStr.replaceCharacters(in: range, with: replacement)
@@ -475,51 +567,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 pb.setData(resolvedRTF, forType: .rtf)
             }
             pb.setString(attrStr.string, forType: .string)
-        } else {
-            let resolved = SnippetTokenResolver.resolve(content, clipboardText: savedClipboard)
-            pb.setString(resolved, forType: .string)
         }
-
-        // Paste into the current frontmost app (panel isn't open for global hotkey)
-        guard let frontApp = previousApp ?? NSWorkspace.shared.frontmostApplication else { return }
-        activateAndPostCmdV(targetApp: frontApp)
+        activateAndPostCmdV(targetApp: frontApp) { [weak self] in
+            self?.restoreClipboardAfterPaste(snapshot)
+        }
     }
 
     /// Insert a snippet from the panel UI (with panel dismissal)
     func pasteSnippetFromPanel(_ snippet: SavedSnippet) {
+        let savedClipboard = NSPasteboard.general.string(forType: .string) ?? ""
+        let needsRTF = snippet.rtfData != nil
+            && !SnippetTokenResolver.isTokenOnly(snippet.content)
+            && !snippet.matchDestinationFont
+
+        if !needsRTF {
+            // Plain text → type directly, no clipboard touched. Dismiss the panel first.
+            let resolved = SnippetTokenResolver.resolve(snippet.content, clipboardText: savedClipboard)
+            panel?.orderOut(nil)
+            guard let prevApp = previousApp else { return }
+            activateAndType(targetApp: prevApp, text: resolved)
+            return
+        }
+
+        // Rich formatting must go through the pasteboard, so snapshot + restore the clipboard.
         clipboardMonitor?.snippetPasteFlag = true
-
         let pb = NSPasteboard.general
-        // Capture clipboard BEFORE clearing so {{clipboard}} token can use it
-        let savedClipboard = pb.string(forType: .string) ?? ""
-        debugLog("pasteSnippetFromPanel: savedClipboard=\"\(savedClipboard.prefix(60))\" snippet.content=\"\(snippet.content.prefix(60))\"")
+        let snapshot = snapshotPasteboard()
         pb.clearContents()
-
-        let isTokenOnly = SnippetTokenResolver.isTokenOnly(snippet.content)
-
-        if let rtfData = snippet.rtfData, !isTokenOnly, !snippet.matchDestinationFont,
-           let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            // Resolve tokens in both RTF and plain text — preserves custom font/size
+        if let rtfData = snippet.rtfData, let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
             let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
-            debugLog("  RTF path: \(tokens.count) tokens found, attrStr=\"\(attrStr.string.prefix(60))\"")
-            // Replace from end to start to preserve ranges
             for (range, replacement) in tokens.reversed() {
-                debugLog("  replacing range \(range) with \"\(replacement.prefix(40))\"")
                 attrStr.replaceCharacters(in: range, with: replacement)
             }
-            debugLog("  after resolve: \"\(attrStr.string.prefix(80))\"")
             if let resolvedRTF = try? attrStr.data(from: NSRange(location: 0, length: attrStr.length),
                                                      documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
                 pb.setData(resolvedRTF, forType: .rtf)
             }
             pb.setString(attrStr.string, forType: .string)
-        } else {
-            let resolved = SnippetTokenResolver.resolve(snippet.content, clipboardText: savedClipboard)
-            debugLog("  plain path: resolved=\"\(resolved.prefix(80))\"")
-            pb.setString(resolved, forType: .string)
         }
-
-        pasteIntoPreviousApp()
+        pasteIntoPreviousApp { [weak self] in
+            self?.restoreClipboardAfterPaste(snapshot)
+        }
     }
 
     /// Continuously track the frontmost app so previousApp is always accurate,

@@ -378,25 +378,22 @@ struct ClipboardListView: View {
                         AppDelegate.shared?.pasteIntoPreviousApp()
                     }
                 }
-                .simultaneousGesture(
-                    TapGesture().modifiers(.shift).onEnded {
-                        handleTap(entry, shift: true)
-                    }
-                )
-                .simultaneousGesture(
-                    TapGesture().modifiers(.command).onEnded {
-                        handleTap(entry, command: true)
-                    }
-                )
+                // Single tap gesture owns ALL click selection. Previously this coexisted
+                // with two `.simultaneousGesture(TapGesture().modifiers(...))` handlers, so a
+                // Command- or Shift-click fired handleTap TWICE — and because command-click
+                // *toggles*, the row got added then removed, silently dropping out of the
+                // selection. Whether both fired was timing-dependent → flaky "only one pasted".
                 .onTapGesture(count: 1) {
                     let flags = NSEvent.modifierFlags
-                    if flags.contains(.shift) {
-                        handleTap(entry, shift: true)
-                    } else if flags.contains(.command) {
+                    if flags.contains(.command) {
                         handleTap(entry, command: true)
+                    } else if flags.contains(.shift) {
+                        handleTap(entry, shift: true)
                     } else {
                         handleTap(entry)
-                        if settings.mouseAction == "singleClick" {
+                        // Only auto-paste (single-click mode) when this really was a single
+                        // selection — if sticky multi-select just added a row, don't paste one.
+                        if settings.mouseAction == "singleClick" && selectedIDs.count == 1 {
                             copyPlainMultiple([entry])
                             AppDelegate.shared?.pasteIntoPreviousApp()
                         }
@@ -486,13 +483,35 @@ struct ClipboardListView: View {
                 selectionOrder.append(entry.id)
                 selectedEntry = entry
             }
-        } else if shift, let anchor = selectedEntry {
+        } else if shift {
             let entries = filteredEntries
-            if let anchorIdx = entries.firstIndex(where: { $0.id == anchor.id }),
+            // Anchor priority: the explicit selectedEntry, else the first already-selected
+            // row, else the top of the list. Without this fallback a shift-click while
+            // selectedEntry was nil just selected the one clicked row instead of the range.
+            let anchor = selectedEntry
+                ?? entries.first(where: { selectedIDs.contains($0.id) })
+                ?? entries.first
+            if let anchor,
+               let anchorIdx = entries.firstIndex(where: { $0.id == anchor.id }),
                let clickIdx = entries.firstIndex(where: { $0.id == entry.id }) {
                 let range = min(anchorIdx, clickIdx)...max(anchorIdx, clickIdx)
                 selectedIDs = Set(entries[range].map(\.id))
                 selectionOrder = entries[range].map(\.id)
+                selectedEntry = anchor
+            }
+        } else if selectedIDs.count >= 2 {
+            // "Sticky" multi-select: once 2+ rows are picked, a plain click keeps building
+            // the list instead of collapsing it to one — a missed Command key can no longer
+            // wipe the selection. Clicking an already-picked row collapses back to just it
+            // (the way out); Escape / reopening the panel clears everything.
+            if selectedIDs.contains(entry.id) {
+                selectedEntry = entry
+                selectedIDs = [entry.id]
+                selectionOrder = [entry.id]
+            } else {
+                selectedIDs.insert(entry.id)
+                selectionOrder.append(entry.id)
+                selectedEntry = entry
             }
         } else {
             selectedEntry = entry
@@ -1069,13 +1088,14 @@ struct ClipboardListView: View {
     }
 
     enum BuiltInTransform {
-        case uppercase, lowercase, capitalCase
+        case uppercase, lowercase, capitalCase, cleanWhitespace
     }
 
     private func builtInKind(for transform: CustomTransformation) -> BuiltInTransform {
         switch transform.id {
         case CustomTransformation.builtInUppercase.id: return .uppercase
         case CustomTransformation.builtInLowercase.id: return .lowercase
+        case CustomTransformation.builtInCleanWhitespace.id: return .cleanWhitespace
         default: return .capitalCase
         }
     }
@@ -1087,8 +1107,24 @@ struct ClipboardListView: View {
         case .uppercase: result = text.uppercased()
         case .lowercase: result = text.lowercased()
         case .capitalCase: result = text.capitalized
+        case .cleanWhitespace: result = Self.cleanWhitespace(text)
         }
         createTransformedEntry(from: entry, newText: result)
+    }
+
+    /// Trim each line, collapse runs of spaces/tabs to one, and collapse blank lines —
+    /// then trim the whole thing. Used by the built-in "Clean Whitespace" transform.
+    static func cleanWhitespace(_ text: String) -> String {
+        func replace(_ pattern: String, _ template: String, in s: String) -> String {
+            guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+            return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
+        }
+        var out = text
+        out = replace("(?m)^[ \\t]+", "", in: out)          // trim line starts
+        out = replace("(?m)[ \\t]+$", "", in: out)          // trim line ends
+        out = replace("[ \\t]{2,}", " ", in: out)           // collapse double spaces
+        out = replace("\\n[ \\t]*\\n(?:[ \\t]*\\n)*", "\n", in: out) // collapse blank lines
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func applyCustom(_ custom: CustomTransformation, to entry: ClipboardEntry) {

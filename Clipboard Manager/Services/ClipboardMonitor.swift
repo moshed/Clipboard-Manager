@@ -520,24 +520,36 @@ class ClipboardMonitor: ObservableObject {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
 
+            // Also decode QR codes / barcodes so their payload (usually a link) is searchable.
+            let barcodeRequest = VNDetectBarcodesRequest()
+
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
-                try handler.perform([request])
+                try handler.perform([request, barcodeRequest])
             } catch {
                 NSLog("[ClipboardManager] OCR: VNImageRequestHandler failed: \(error)")
                 return
             }
 
-            guard let observations = request.results else {
-                NSLog("[ClipboardManager] OCR: No results")
-                return
-            }
-
-            let text = observations
+            let recognized = (request.results ?? [])
                 .compactMap { $0.topCandidates(1).first?.string }
                 .joined(separator: "\n")
 
-            NSLog("[ClipboardManager] OCR: Found \(observations.count) observations, text length=\(text.count)")
+            // Barcode/QR payloads — dedupe so the same link isn't repeated.
+            var barcodeLines: [String] = []
+            for obs in barcodeRequest.results ?? [] {
+                if let payload = obs.payloadStringValue, !payload.isEmpty,
+                   !barcodeLines.contains(payload) {
+                    barcodeLines.append(payload)
+                }
+            }
+            let barcodeText = barcodeLines.joined(separator: "\n")
+
+            let text = [recognized, barcodeText]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+
+            NSLog("[ClipboardManager] OCR: \(request.results?.count ?? 0) text obs, \(barcodeRequest.results?.count ?? 0) barcodes, text length=\(text.count)")
             if !text.isEmpty {
                 NSLog("[ClipboardManager] OCR: Text preview: \(String(text.prefix(200)))")
             }

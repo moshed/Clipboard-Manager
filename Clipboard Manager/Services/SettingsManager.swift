@@ -14,8 +14,9 @@ extension CustomTransformation {
     static let builtInUppercase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "UPPERCASE", pattern: "", replacement: "", isBuiltIn: true)
     static let builtInLowercase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "lowercase", pattern: "", replacement: "", isBuiltIn: true)
     static let builtInCapitalCase = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, name: "Capital Case", pattern: "", replacement: "", isBuiltIn: true)
+    static let builtInCleanWhitespace = CustomTransformation(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, name: "Clean Whitespace", pattern: "", replacement: "", isBuiltIn: true)
 
-    static let defaultBuiltIns: [CustomTransformation] = [builtInUppercase, builtInLowercase, builtInCapitalCase]
+    static let defaultBuiltIns: [CustomTransformation] = [builtInUppercase, builtInLowercase, builtInCapitalCase, builtInCleanWhitespace]
 }
 
 struct KeyCombo: Codable, Equatable {
