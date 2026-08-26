@@ -538,9 +538,171 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// Turn literal bullet lines ("\t• text", "1. text") into REAL lists.
+    ///
+    /// Snippets typed with plain "•" characters carry no list structure — the stored RTF has
+    /// no \\listtable at all — so the receiving app pastes them as ordinary text and pressing
+    /// Return does NOT continue the list. Rebuilding them as NSTextList paragraphs makes the
+    /// RTF carry proper list tables, so Mail/Word treat them as live bullets.
+    private func convertLiteralBulletsToLists(_ attrStr: NSMutableAttributedString) {
+        guard attrStr.length > 0 else { return }
+        let ns = attrStr.string as NSString
+        var paraRanges: [NSRange] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length),
+                               options: [.byParagraphs, .substringNotRequired]) { _, r, _, _ in
+            paraRanges.append(r)
+        }
+        guard let pattern = try? NSRegularExpression(
+            pattern: "^([\\t ]*)([\u{2022}\u{25E6}\u{2023}\u{2043}\u{25AA}*\\-]|\\d+[.)])[\\t ]+(.*)$"
+        ) else { return }
+
+        // One NSTextList instance per (level, marker), REUSED across items. A fresh
+        // instance per line makes every bullet its own single-item list, which renders with
+        // extra space between items and breaks list continuity.
+        var sharedLists: [String: NSTextList] = [:]
+
+        // Back-to-front so earlier ranges stay valid while mutating.
+        for range in paraRanges.reversed() {
+            let line = ns.substring(with: range)
+            let lineNS = line as NSString
+            guard let m = pattern.firstMatch(in: line, range: NSRange(location: 0, length: lineNS.length)),
+                  m.numberOfRanges == 4 else { continue }
+            let indent = lineNS.substring(with: m.range(at: 1))
+            let marker = lineNS.substring(with: m.range(at: 2))
+            let body = lineNS.substring(with: m.range(at: 3))
+            let tabs = indent.filter { $0 == "\t" }.count
+            let level = max(0, tabs - (tabs > 0 ? 1 : 0))
+
+            let isNumbered = marker.rangeOfCharacter(from: .decimalDigits) != nil
+            // Keep the marker the user actually typed at EVERY level. Imposing the usual
+            // disc → circle → square cascade silently rewrote their nested "\u{2022}" as a
+            // hollow "\u{25E6}", so the paste no longer matched the snippet they wrote.
+            let fmt: NSTextList.MarkerFormat
+            switch marker {
+            case "\u{25E6}": fmt = .circle
+            case "\u{25AA}": fmt = .square
+            case "-", "*":   fmt = .hyphen
+            default:         fmt = isNumbered ? .decimal : .disc
+            }
+            var lists: [NSTextList] = []
+            for i in 0...level {
+                let key = "\(i)-\(fmt.rawValue)"
+                if let existing = sharedLists[key] {
+                    lists.append(existing)
+                } else {
+                    let made = NSTextList(markerFormat: fmt, options: 0)
+                    sharedLists[key] = made
+                    lists.append(made)
+                }
+            }
+            // Start from the paragraph's EXISTING style so line/paragraph spacing the user
+            // set is preserved — building a fresh style dropped it and looked double-spaced.
+            let base = attrStr.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+            let para = (base?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            para.textLists = lists
+            para.firstLineHeadIndent = CGFloat(level * 36)
+            para.headIndent = CGFloat((level + 1) * 36)
+            para.paragraphSpacing = 0
+            para.paragraphSpacingBefore = 0
+            para.lineSpacing = 0
+
+            // Cocoa's list convention is: tab, marker, tab, text.
+            let markerText = isNumbered ? marker : "\u{2022}"
+            let attrIndex = min(range.location + (indent as NSString).length, max(0, attrStr.length - 1))
+            let attrs = attrStr.attributes(at: attrIndex, effectiveRange: nil)
+            let replacement = NSMutableAttributedString(string: "\t\(markerText)\t\(body)", attributes: attrs)
+            replacement.addAttribute(.paragraphStyle, value: para,
+                                     range: NSRange(location: 0, length: replacement.length))
+            attrStr.replaceCharacters(in: range, with: replacement)
+        }
+    }
+
+    /// Resolve a snippet's RTF (tokens substituted) and put it on the pasteboard.
+    ///
+    /// `matchDestinationFont` means "adopt the destination's typeface", NOT "send plain
+    /// text" — sending plain text loses bullets, numbering and bold, which is what users
+    /// notice ("pasted plain, no bullets"). So the RTF is always sent; when the flag is on
+    /// we only drop each run's font family/size, keeping its bold/italic traits and all
+    /// paragraph structure (NSTextList bullets survive because they live in the paragraph
+    /// style, not the font).
+    private func writeSnippetRTF(_ rtfData: Data, clipboardText: String,
+                                 matchDestinationFont: Bool, to pb: NSPasteboard) {
+        guard let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) else { return }
+
+        let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: clipboardText)
+        for (range, replacement) in tokens.reversed() {
+            attrStr.replaceCharacters(in: range, with: replacement)
+        }
+
+        // Rebuild any literal "• " lines as real lists so Return continues the list.
+        convertLiteralBulletsToLists(attrStr)
+
+        if matchDestinationFont {
+            let full = NSRange(location: 0, length: attrStr.length)
+            attrStr.enumerateAttribute(.font, in: full, options: []) { value, range, _ in
+                guard let font = value as? NSFont else { return }
+                let traits = font.fontDescriptor.symbolicTraits
+                var replacement = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                let descriptor = replacement.fontDescriptor.withSymbolicTraits(traits)
+                if let traited = NSFont(descriptor: descriptor, size: NSFont.systemFontSize) {
+                    replacement = traited
+                }
+                attrStr.addAttribute(.font, value: replacement, range: range)
+            }
+        }
+
+        let full = NSRange(location: 0, length: attrStr.length)
+        let hasList = Self.containsTextList(attrStr)
+
+        // For list content, prefer HTML. Cocoa's RTF writer closes and reopens the list for
+        // EVERY item, which the receiving app renders with a big gap between bullets — the
+        // "very tall line spacing" symptom. In HTML we can merge those blocks back into one
+        // <ul>, so the list stays continuous and tight.
+        if hasList,
+           let htmlData = try? attrStr.data(from: full, documentAttributes: [
+               .documentType: NSAttributedString.DocumentType.html,
+               .excludedElements: ["doctype", "html", "head", "meta", "style", "body"]
+           ]),
+           var html = String(data: htmlData, encoding: .utf8) {
+            html = html.replacingOccurrences(of: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>", with: "")
+            for tag in ["ul", "ol"] {
+                if let re = try? NSRegularExpression(pattern: "</\(tag)>\\s*<\(tag)([^>]*)>") {
+                    html = re.stringByReplacingMatches(in: html,
+                                                       range: NSRange(html.startIndex..., in: html),
+                                                       withTemplate: "")
+                }
+            }
+            if let merged = html.data(using: .utf8) {
+                pb.setData(merged, forType: .html)
+                pb.setString(attrStr.string, forType: .string)
+                return
+            }
+        }
+
+        if let resolvedRTF = try? attrStr.data(from: full,
+                                               documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+            pb.setData(resolvedRTF, forType: .rtf)
+        }
+        pb.setString(attrStr.string, forType: .string)
+    }
+
+    /// Whether any paragraph carries a real NSTextList (i.e. the content is a live list).
+    private static func containsTextList(_ attrStr: NSAttributedString) -> Bool {
+        var found = false
+        attrStr.enumerateAttribute(.paragraphStyle,
+                                   in: NSRange(location: 0, length: attrStr.length),
+                                   options: []) { value, _, stop in
+            if let style = value as? NSParagraphStyle, !style.textLists.isEmpty {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+
     private func pasteSnippetContent(_ content: String, rtfData: Data? = nil, matchDestinationFont: Bool = true) {
         let savedClipboard = NSPasteboard.general.string(forType: .string) ?? ""
-        let needsRTF = rtfData != nil && !SnippetTokenResolver.isTokenOnly(content) && !matchDestinationFont
+        let needsRTF = rtfData != nil && !SnippetTokenResolver.isTokenOnly(content)
 
         // Paste into the current frontmost app (panel isn't open for global hotkey)
         guard let frontApp = previousApp ?? NSWorkspace.shared.frontmostApplication else { return }
@@ -557,16 +719,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pb = NSPasteboard.general
         let snapshot = snapshotPasteboard()
         pb.clearContents()
-        if let rtfData, let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
-            for (range, replacement) in tokens.reversed() {
-                attrStr.replaceCharacters(in: range, with: replacement)
-            }
-            if let resolvedRTF = try? attrStr.data(from: NSRange(location: 0, length: attrStr.length),
-                                                     documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
-                pb.setData(resolvedRTF, forType: .rtf)
-            }
-            pb.setString(attrStr.string, forType: .string)
+        if let rtfData {
+            writeSnippetRTF(rtfData, clipboardText: savedClipboard,
+                            matchDestinationFont: matchDestinationFont, to: pb)
         }
         activateAndPostCmdV(targetApp: frontApp) { [weak self] in
             self?.restoreClipboardAfterPaste(snapshot)
@@ -578,7 +733,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let savedClipboard = NSPasteboard.general.string(forType: .string) ?? ""
         let needsRTF = snippet.rtfData != nil
             && !SnippetTokenResolver.isTokenOnly(snippet.content)
-            && !snippet.matchDestinationFont
 
         if !needsRTF {
             // Plain text → type directly, no clipboard touched. Dismiss the panel first.
@@ -594,16 +748,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pb = NSPasteboard.general
         let snapshot = snapshotPasteboard()
         pb.clearContents()
-        if let rtfData = snippet.rtfData, let attrStr = NSMutableAttributedString(rtf: rtfData, documentAttributes: nil) {
-            let tokens = SnippetTokenResolver.findTokenRanges(in: attrStr.string, clipboardText: savedClipboard)
-            for (range, replacement) in tokens.reversed() {
-                attrStr.replaceCharacters(in: range, with: replacement)
-            }
-            if let resolvedRTF = try? attrStr.data(from: NSRange(location: 0, length: attrStr.length),
-                                                     documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
-                pb.setData(resolvedRTF, forType: .rtf)
-            }
-            pb.setString(attrStr.string, forType: .string)
+        if let rtfData = snippet.rtfData {
+            writeSnippetRTF(rtfData, clipboardText: savedClipboard,
+                            matchDestinationFont: snippet.matchDestinationFont, to: pb)
         }
         pasteIntoPreviousApp { [weak self] in
             self?.restoreClipboardAfterPaste(snapshot)
