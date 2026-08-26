@@ -230,3 +230,27 @@ Clipboard Manager/
 - A conflicting hotkey in another app is worth ruling out, but check each app's OWN log/config
   for what it actually registered. Here neither BetterTouchTool nor Window Manager had `;`
   bound at all — the caller was this app the whole time.
+
+### Rich Snippets: real bullets, and the "tall line spacing" trap
+- **`matchDestinationFont` must NOT mean "send plain text."** It originally routed rich
+  snippets down the plain-text path, silently stripping bullets, numbering and bold. It now
+  only swaps each run's typeface/size (keeping symbolic traits), so structure survives.
+- **Snippets typed with literal "•" characters carry NO list structure** — the stored RTF has
+  no `\listtable` at all, so the receiving app shows plain text and Return does not continue
+  the list. `convertLiteralBulletsToLists()` rebuilds those lines as real `NSTextList`
+  paragraphs at paste time (leading tabs give the nesting level). Check a snippet's stored RTF
+  with `grep -c listtable` before assuming the paste code is at fault.
+- **Keep the user's marker at every level.** Imposing the conventional disc → circle → square
+  cascade rewrote nested "•" as hollow "◦" and no longer matched the snippet they wrote.
+- **Reuse ONE `NSTextList` instance per level** across items, and start from the paragraph's
+  existing style. A fresh list object per line makes each bullet its own single-item list.
+- **The big one — Cocoa closes and reopens the list for EVERY item.** Both the RTF and HTML
+  writers emit `</ul><ul>` (or a new list table) between items, which the receiving app renders
+  with a large gap — reported as "single spaced but the space between lines is very tall".
+  Sharing the list instance does NOT prevent it. Fix: export **HTML** for list content and merge
+  adjacent blocks with a `</ul>\s*<ul[^>]*>` → `""` regex (same for `ol`), then put that on the
+  pasteboard as `.html`. Non-list rich snippets still go as RTF.
+- **Diagnose spacing by measuring, not guessing**: dump `lineSpacing`, `paragraphSpacing`,
+  `paragraphSpacingBefore`, `minimum/maximumLineHeight`, `lineHeightMultiple` and the font for
+  the original vs the converted string. Here they were byte-identical, which is what proved the
+  gap came from the writer's list-per-item markup rather than from the paragraph styles.
