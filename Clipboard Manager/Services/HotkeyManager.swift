@@ -10,10 +10,13 @@ class HotkeyManager {
 
     /// Action + active-state for the Excel-clean hotkey, which is scoped to Excel only.
     private var excelCleanAction: (() -> Void)?
+    private var saveToFinderAction: (() -> Void)?
+    private var saveToFinderActive = false
     private var excelCleanActive = false
 
     private static let toggleID: UInt32 = 1
     private static let excelCleanID: UInt32 = 2
+    private static let saveToFinderID: UInt32 = 3
     private static let snippetIDBase: UInt32 = 100
 
     init(onToggle: @escaping () -> Void) {
@@ -90,6 +93,31 @@ class HotkeyManager {
               let action = excelCleanAction,
               let combo = settings.excelCleanShortcut else { return }
         register(id: HotkeyManager.excelCleanID, combo: combo, action: action)
+    }
+
+    /// Store the "save clipboard image into the front Finder window" action. Like the
+    /// Excel-clean hotkey it is only registered while Finder is frontmost, so the combo
+    /// stays free in every other app.
+    func setupSaveToFinderHotkey(action: @escaping () -> Void) {
+        saveToFinderAction = action
+        settings.onSaveToFinderShortcutChanged = { [weak self] in
+            guard let self, self.saveToFinderActive else { return }
+            self.applySaveToFinderRegistration()
+        }
+    }
+
+    func setSaveToFinderHotkeyActive(_ active: Bool) {
+        guard active != saveToFinderActive else { return }
+        saveToFinderActive = active
+        applySaveToFinderRegistration()
+    }
+
+    private func applySaveToFinderRegistration() {
+        unregister(id: HotkeyManager.saveToFinderID)
+        guard saveToFinderActive,
+              let action = saveToFinderAction,
+              let combo = settings.saveToFinderShortcut else { return }
+        register(id: HotkeyManager.saveToFinderID, combo: combo, action: action)
     }
 
     /// Unregister all snippet hotkeys (IDs in the snippet range)

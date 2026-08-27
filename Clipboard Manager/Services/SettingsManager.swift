@@ -38,6 +38,8 @@ struct KeyCombo: Codable, Equatable {
     static let defaultCopyFormatted = KeyCombo(keyCode: UInt32(kVK_Return), modifiers: UInt32(shiftKey))
     static let defaultDelete = KeyCombo(keyCode: UInt32(kVK_Delete), modifiers: UInt32(cmdKey))
     static let defaultExcelClean = KeyCombo(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey))
+    /// Save clipboard images into the front Finder window (default ⌘⌥⌃S).
+    static let defaultSaveToFinder = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | optionKey | controlKey))
     static let defaultSaveImage = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey))
     static let defaultExpand: KeyCombo? = nil
     static let none = KeyCombo(keyCode: UInt32.max, modifiers: UInt32.max)
@@ -147,6 +149,10 @@ class SettingsManager: ObservableObject {
     }
 
     /// Global shortcut to copy the current Excel selection and strip non-contiguous gaps.
+    @Published var saveToFinderShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(saveToFinderShortcut, forKey: "saveToFinderShortcut"); onSaveToFinderShortcutChanged?() }
+    }
+
     @Published var excelCleanShortcut: KeyCombo? {
         didSet {
             saveOptionalKeyCombo(excelCleanShortcut, forKey: "excelCleanShortcut")
@@ -273,6 +279,7 @@ class SettingsManager: ObservableObject {
 
     var onToggleShortcutChanged: (() -> Void)?
     var onExcelCleanShortcutChanged: (() -> Void)?
+    var onSaveToFinderShortcutChanged: (() -> Void)?
     var onDismissSettingChanged: (() -> Void)?
 
     private init() {
@@ -291,6 +298,7 @@ class SettingsManager: ObservableObject {
         self.excelCleanup = UserDefaults.standard.object(forKey: "excelCleanup") as? Bool ?? true
         self.excelCopyAsText = UserDefaults.standard.object(forKey: "excelCopyAsText") as? Bool ?? true
         self.excelCleanShortcut = SettingsManager.loadKeyCombo(forKey: "excelCleanShortcut") ?? .defaultExcelClean
+        self.saveToFinderShortcut = SettingsManager.loadKeyCombo(forKey: "saveToFinderShortcut") ?? .defaultSaveToFinder
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
         self.copyPlainShortcut = SettingsManager.loadKeyCombo(forKey: "copyPlainShortcut") ?? .defaultCopyPlain

@@ -341,6 +341,14 @@ struct ShortcutsSettingsView: View {
                     .padding(.leading, 4)
             }
 
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Save Clipboard Image to Finder", keyCombo: $settings.saveToFinderShortcut, requireModifier: true)
+                Text("In Finder, saves the clipboard image as a PNG into the front window's folder and selects it. Only active while Finder is frontmost.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+
             Divider()
 
             // In-App section
@@ -831,6 +839,7 @@ struct BackupData: Codable {
         var tabToggleShortcut: KeyCombo?
         var tabBackwardShortcut: KeyCombo?
         var excelCleanShortcut: KeyCombo?
+        var saveToFinderShortcut: KeyCombo?
         var saveImageShortcut: KeyCombo?
         var imageSaveFolderPath: String?
     }
@@ -940,6 +949,7 @@ struct SnippetBackupView: View {
             tabToggleShortcut: sm.tabToggleShortcut,
             tabBackwardShortcut: sm.tabBackwardShortcut,
             excelCleanShortcut: sm.excelCleanShortcut,
+            saveToFinderShortcut: sm.saveToFinderShortcut,
             saveImageShortcut: sm.saveImageShortcut,
             imageSaveFolderPath: sm.imageSaveFolderPath
         )
@@ -1010,6 +1020,7 @@ struct SnippetBackupView: View {
                 if let v = s.tabToggleShortcut { sm.tabToggleShortcut = v }
                 if let v = s.tabBackwardShortcut { sm.tabBackwardShortcut = v }
                 if let v = s.excelCleanShortcut { sm.excelCleanShortcut = v }
+                if let v = s.saveToFinderShortcut { sm.saveToFinderShortcut = v }
                 if let v = s.saveImageShortcut { sm.saveImageShortcut = v }
                 if let v = s.imageSaveFolderPath { sm.imageSaveFolderPath = v }
             }

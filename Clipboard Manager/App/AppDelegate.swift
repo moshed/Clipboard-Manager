@@ -57,6 +57,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             SFSymbolLoader.shared.load()
         }
 
+        // Snapshot snippets to a JSON file so an accidental delete is recoverable by
+        // copying a file instead of scraping freed database pages.
+        Task.detached(priority: .utility) { [container = modelContainer!] in
+            SnippetBackup.run(container: container)
+        }
+
         // Backfill: move legacy inline imageData into ClipboardImageBlob + thumbnailData
         Task.detached(priority: .utility) { [container = modelContainer!] in
             await Self.migrateInlineImagesToBlobs(container: container)
@@ -165,6 +171,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyManager?.setupExcelCleanHotkey { [weak self] in
             MainActor.assumeIsolated {
                 self?.clipboardMonitor?.cleanExcelSelection()
+            }
+        }
+        hotkeyManager?.setupSaveToFinderHotkey { [weak self] in
+            MainActor.assumeIsolated {
+                self?.saveClipboardImageToFinderWindow()
             }
         }
     }
@@ -757,6 +768,73 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+
+    // MARK: - Save clipboard image into the front Finder window
+
+    private static let finderBundleID = "com.apple.finder"
+
+    /// Write any image on the clipboard into the folder the front Finder window shows,
+    /// then select it. Falls back to the configured save folder (or Downloads) when
+    /// Finder has no window open — e.g. only the Desktop is showing.
+    private func saveClipboardImageToFinderWindow() {
+        let pb = NSPasteboard.general
+        var data = pb.data(forType: .png)
+        if data == nil, let tiff = pb.data(forType: .tiff),
+           let rep = NSBitmapImageRep(data: tiff) {
+            data = rep.representation(using: .png, properties: [:])
+        }
+        guard let imageData = data else {
+            NSSound.beep()
+            return
+        }
+
+        let folder = frontFinderFolder() ?? SettingsManager.shared.imageSaveFolderURL
+
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        var url = folder.appendingPathComponent("Clipboard \(stamp.string(from: Date())).png")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = folder.appendingPathComponent("Clipboard \(stamp.string(from: Date())) (\(n)).png")
+            n += 1
+        }
+
+        do {
+            try imageData.write(to: url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            NSLog("[ClipboardManager] Save to Finder failed: %@", error.localizedDescription)
+            NSSound.beep()
+        }
+    }
+
+    /// The folder shown by Finder's frontmost window, via AppleScript (needs Automation
+    /// permission for Finder — macOS prompts once).
+    private func frontFinderFolder() -> URL? {
+        let script = """
+        tell application "Finder"
+            if (count of windows) is 0 then return ""
+            try
+                return POSIX path of (target of front window as alias)
+            on error
+                return ""
+            end try
+        end tell
+        """
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        task.arguments = ["-e", script]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        guard (try? task.run()) != nil else { return nil }
+        task.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !out.isEmpty else { return nil }
+        return URL(fileURLWithPath: out, isDirectory: true)
+    }
+
     /// Continuously track the frontmost app so previousApp is always accurate,
     /// even when the user switches desktops/spaces before invoking the panel.
     private static let excelBundleID = "com.microsoft.Excel"
@@ -765,6 +843,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Set initial Excel-clean hotkey state based on what's frontmost right now.
         hotkeyManager?.setExcelCleanHotkeyActive(
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.excelBundleID
+        )
+        hotkeyManager?.setSaveToFinderHotkeyActive(
+            NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID
         )
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -778,6 +859,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Ignore activations of our own (non-activating) app so the state sticks while in Excel.
             if app.bundleIdentifier != Bundle.main.bundleIdentifier {
                 self?.hotkeyManager?.setExcelCleanHotkeyActive(app.bundleIdentifier == Self.excelBundleID)
+                // Same scoping for save-to-Finder: only live while Finder is frontmost.
+                self?.hotkeyManager?.setSaveToFinderHotkeyActive(app.bundleIdentifier == Self.finderBundleID)
                 self?.previousApp = app
             }
         }
