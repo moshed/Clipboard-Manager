@@ -381,42 +381,13 @@ struct ClipboardListView: View {
             ? selectionOrder.firstIndex(of: entry.id).map { $0 + 1 }
             : nil
 
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-
-            if let data = entry.thumbnailData ?? entry.imageData, let img = NSImage(data: data) {
-                Image(nsImage: img)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-            } else {
-                Image(systemName: entry.contentType.systemImage)
-                    .font(.system(size: 22))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            if let orderIndex {
-                Text("\(orderIndex)")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 16)
-                    .padding(.vertical, 1)
-                    .background(Color(nsColor: .controlAccentColor), in: Capsule())
-                    .padding(4)
-            }
+        // The CELL decides the size, not the image. An empty square drives the layout and
+        // the picture is laid over it with scaledToFill, so every tile is identical and
+        // odd-shaped images are cropped instead of stretching the grid.
+        return VStack(alignment: .leading, spacing: 4) {
+            imageTileThumbnail(for: entry, isSelected: isSelected, orderIndex: orderIndex)
+            imageTileCaption(for: entry)
         }
-        // Square tiles so every cell is the same size no matter the image's shape.
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous)
-                .strokeBorder(isSelected ? Color(nsColor: .controlAccentColor) : Color.primary.opacity(0.12),
-                              lineWidth: isSelected ? 2.5 : 1)
-        )
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             if settings.mouseAction == "doubleClick" {
@@ -440,6 +411,79 @@ struct ClipboardListView: View {
             }
         }
         .contextMenu { entryContextMenu(for: entry) }
+    }
+
+    /// Source app, time and site under each thumbnail — the same facts the list rows show.
+    @ViewBuilder
+    private func imageTileCaption(for entry: ClipboardEntry) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                if entry.contentType == .screenshot {
+                    Image(systemName: "macbook")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(nsImage: AppIconResolver.shared.icon(forBundleID: entry.sourceAppBundleID))
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 12, height: 12)
+                }
+                Text(entry.sourceAppName ?? entry.contentType.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            HStack(spacing: 3) {
+                Text(entry.timestamp, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                if let domain = entry.sourceDomain {
+                    Text("· \(domain)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.blue)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+    }
+
+    @ViewBuilder
+    private func imageTileThumbnail(for entry: ClipboardEntry, isSelected: Bool, orderIndex: Int?) -> some View {
+        Color.primary.opacity(0.05)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                if let data = entry.thumbnailData ?? entry.imageData, let img = NSImage(data: data) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                } else {
+                    Image(systemName: entry.contentType.systemImage)
+                        .font(.system(size: 22))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                if let orderIndex {
+                    Text("\(orderIndex)")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 16)
+                        .padding(.vertical, 1)
+                        .background(Color(nsColor: .controlAccentColor), in: Capsule())
+                        .padding(4)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous)
+                    .strokeBorder(isSelected ? Color(nsColor: .controlAccentColor) : Color.primary.opacity(0.12),
+                                  lineWidth: isSelected ? 2.5 : 1)
+            }
     }
 
     // MARK: - Clips List
