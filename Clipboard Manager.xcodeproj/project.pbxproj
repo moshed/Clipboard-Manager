@@ -26,6 +26,7 @@
 		A10016 /* SavedSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
 		A10017 /* SnippetTokenResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
 		A10099 /* SnippetBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10099; };
+		A10098 /* ClipboardFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10098; };
 		A10018 /* SnippetEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
 		A10019 /* SnippetListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
 /* End PBXBuildFile section */
@@ -52,6 +53,7 @@
 		B10018 /* SavedSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSnippet.swift; sourceTree = "<group>"; };
 		B10019 /* SnippetTokenResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetTokenResolver.swift; sourceTree = "<group>"; };
 		B10099 /* SnippetBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetBackup.swift; sourceTree = "<group>"; };
+		B10098 /* ClipboardFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFolder.swift; sourceTree = "<group>"; };
 		B10020 /* SnippetEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorView.swift; sourceTree = "<group>"; };
 		B10021 /* SnippetListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetListView.swift; sourceTree = "<group>"; };
 		P10001 /* Clipboard Manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Clipboard Manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -118,6 +120,7 @@
 				B10006 /* SettingsManager.swift */,
 				B10019 /* SnippetTokenResolver.swift */,
 				B10099 /* SnippetBackup.swift */,
+				B10098 /* ClipboardFolder.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -244,6 +247,7 @@
 				A10016 /* SavedSnippet.swift in Sources */,
 				A10017 /* SnippetTokenResolver.swift in Sources */,
 				A10099 /* SnippetBackup.swift in Sources */,
+				A10098 /* ClipboardFolder.swift in Sources */,
 				A10018 /* SnippetEditorView.swift in Sources */,
 				A10019 /* SnippetListView.swift in Sources */,
 			);

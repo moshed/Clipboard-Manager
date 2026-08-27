@@ -153,6 +153,19 @@ struct GeneralSettingsView: View {
                     .truncationMode(.middle)
             }
 
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Clipboard Folder", isOn: $settings.clipboardFolderEnabled)
+                Text("Keeps copied images and files as real files in \(ClipboardFolder.url.path), so upload dialogs can pick them straight from the clipboard. Text is never written. Keeps the \(ClipboardFolder.keepCount) newest.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                if settings.clipboardFolderEnabled {
+                    Button("Open Folder") {
+                        NSWorkspace.shared.open(ClipboardFolder.ensureFolder())
+                    }
+                    .padding(.top, 2)
+                }
+            }
+
             settingsRow("Toolbar Display") {
                 Picker("", selection: $settings.toolbarDisplay) {
                     Text("Icons & Text").tag("both")

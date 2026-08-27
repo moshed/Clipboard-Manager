@@ -57,6 +57,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             SFSymbolLoader.shared.load()
         }
 
+        // Seed the Clipboard folder from recent history so it is useful immediately.
+        Task.detached(priority: .utility) { [container = modelContainer!] in
+            await Self.seedClipboardFolder(container: container)
+        }
+
         // Snapshot snippets to a JSON file so an accidental delete is recoverable by
         // copying a file instead of scraping freed database pages.
         Task.detached(priority: .utility) { [container = modelContainer!] in
@@ -833,6 +838,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !out.isEmpty else { return nil }
         return URL(fileURLWithPath: out, isDirectory: true)
+    }
+
+
+    /// Populate the Clipboard folder with the most recent image entries the first time it
+    /// is empty, so it is immediately useful in a file picker.
+    private static func seedClipboardFolder(container: ModelContainer) async {
+        guard SettingsManager.shared.clipboardFolderEnabled else { return }
+        let dir = ClipboardFolder.ensureFolder()
+        let existing = (try? FileManager.default.contentsOfDirectory(atPath: dir.path))?
+            .filter { !$0.hasPrefix(".") } ?? []
+        guard existing.isEmpty else { return }
+
+        let context = ModelContext(container)
+        var descriptor = FetchDescriptor<ClipboardEntry>(
+            sortBy: [SortDescriptor(\ClipboardEntry.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = 200
+        guard let entries = try? context.fetch(descriptor) else { return }
+
+        var written = 0
+        for entry in entries where written < 25 {
+            let type = entry.contentType
+            guard type == .image || type == .screenshot else { continue }
+            guard let data = entry.imageData ?? ClipboardImageStore.fullData(for: entry.id, context: context) else { continue }
+            let label = type == .screenshot ? "Screenshot" : (entry.sourceAppName ?? "Image")
+            if ClipboardFolder.saveImage(data, label: label) != nil { written += 1 }
+        }
+        NSLog("[ClipboardManager] Clipboard folder seeded with %d images", written)
     }
 
     /// Continuously track the frontmost app so previousApp is always accurate,

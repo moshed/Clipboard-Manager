@@ -148,6 +148,15 @@ class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(excelCopyAsText, forKey: "excelCopyAsText") }
     }
 
+    /// Mirror clipboard images/files into a real folder so file pickers can reach them.
+    @Published var clipboardFolderEnabled: Bool {
+        didSet { UserDefaults.standard.set(clipboardFolderEnabled, forKey: "clipboardFolderEnabled") }
+    }
+
+    @Published var clipboardFolderPath: String? {
+        didSet { UserDefaults.standard.set(clipboardFolderPath, forKey: "clipboardFolderPath") }
+    }
+
     /// Global shortcut to copy the current Excel selection and strip non-contiguous gaps.
     @Published var saveToFinderShortcut: KeyCombo? {
         didSet { saveOptionalKeyCombo(saveToFinderShortcut, forKey: "saveToFinderShortcut"); onSaveToFinderShortcutChanged?() }
@@ -299,6 +308,8 @@ class SettingsManager: ObservableObject {
         self.excelCopyAsText = UserDefaults.standard.object(forKey: "excelCopyAsText") as? Bool ?? true
         self.excelCleanShortcut = SettingsManager.loadKeyCombo(forKey: "excelCleanShortcut") ?? .defaultExcelClean
         self.saveToFinderShortcut = SettingsManager.loadKeyCombo(forKey: "saveToFinderShortcut") ?? .defaultSaveToFinder
+        self.clipboardFolderEnabled = UserDefaults.standard.object(forKey: "clipboardFolderEnabled") as? Bool ?? true
+        self.clipboardFolderPath = UserDefaults.standard.string(forKey: "clipboardFolderPath")
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
         self.copyPlainShortcut = SettingsManager.loadKeyCombo(forKey: "copyPlainShortcut") ?? .defaultCopyPlain

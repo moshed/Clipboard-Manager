@@ -259,6 +259,11 @@ class ClipboardMonitor: ObservableObject {
                 sourceAppName: appName
             )
             context.insert(entry)
+            // Mirror into the Clipboard folder so file pickers can reach it.
+            let filePathsToMirror = paths
+            DispatchQueue.global(qos: .utility).async {
+                ClipboardFolder.saveFiles(filePathsToMirror)
+            }
             if let imgData = imageData {
                 attachImage(imgData, to: entry, context: context)
                 performOCR(imageData: imgData, entryID: entry.id)
@@ -300,6 +305,11 @@ class ClipboardMonitor: ObservableObject {
                 entry.sourceURL = firstURL.absoluteString
             }
             context.insert(entry)
+            // Mirror the image into the Clipboard folder (images/files only — never text).
+            let mirrorLabel = isScreenshot ? "Screenshot" : (appName ?? "Image")
+            DispatchQueue.global(qos: .utility).async {
+                ClipboardFolder.saveImage(imageData, label: mirrorLabel)
+            }
             attachImage(imageData, to: entry, context: context)
             performOCR(imageData: imageData, entryID: entry.id)
             // Capture the source page + favicon the image was copied from — async so it
