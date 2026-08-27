@@ -838,4 +838,6 @@ extension Notification.Name {
     static let snippetMoveSelection = Notification.Name("snippetMoveSelection")
     static let snippetInsertSelected = Notification.Name("snippetInsertSelected")
     static let snippetDeleteSelected = Notification.Name("snippetDeleteSelected")
+    /// Delete a folder AND everything inside it (Cmd+Delete, asks first).
+    static let snippetDeleteWithContents = Notification.Name("snippetDeleteWithContents")
 }

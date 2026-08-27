@@ -16,6 +16,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
     var onLeftArrow: () -> Void = {}
     var onExpand: () -> Void
     var onDelete: () -> Void
+    var onDeleteWithContents: (() -> Void)? = nil
     var onEnter: () -> Void
     var onShiftEnter: () -> Void
     var onTyping: (String) -> Void
@@ -39,6 +40,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         view.onLeftArrow = onLeftArrow
         view.onExpand = onExpand
         view.onDelete = onDelete
+        view.onDeleteWithContents = onDeleteWithContents
         view.onEnter = onEnter
         view.onShiftEnter = onShiftEnter
         view.onTyping = onTyping
@@ -63,6 +65,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         nsView.onLeftArrow = onLeftArrow
         nsView.onExpand = onExpand
         nsView.onDelete = onDelete
+        nsView.onDeleteWithContents = onDeleteWithContents
         nsView.onEnter = onEnter
         nsView.onShiftEnter = onShiftEnter
         nsView.onTyping = onTyping
@@ -87,6 +90,7 @@ class KeyCaptureView: NSView {
     var onLeftArrow: (() -> Void)?
     var onExpand: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onDeleteWithContents: (() -> Void)?
     var onEnter: (() -> Void)?
     var onShiftEnter: (() -> Void)?
     var onTyping: ((String) -> Void)?
@@ -220,6 +224,16 @@ class KeyCaptureView: NSView {
                 onCopyPlain?()
                 return true
             }
+        }
+
+        // Cmd + the delete key = "delete folder AND its contents" (the handler confirms
+        // first). Checked before the plain delete shortcut so it wins the match.
+        if let combo = settings.deleteShortcut,
+           flags.contains(.command),
+           keyCode == combo.keyCode,
+           !inTextField {
+            onDeleteWithContents?()
+            return true
         }
 
         if let combo = settings.deleteShortcut, combo.matches(keyCode: keyCode, modifiers: mods) {

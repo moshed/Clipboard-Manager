@@ -210,6 +210,13 @@ struct ClipboardListView: View {
                     modelContext.delete(entry)
                 }
             },
+            onDeleteWithContents: {
+                // Cmd+Delete in the snippets tab = delete a folder AND its contents
+                // (the snippet list confirms first). Clipboard tab keeps normal delete.
+                if viewMode == .snippets {
+                    NotificationCenter.default.post(name: .snippetDeleteWithContents, object: nil)
+                }
+            },
             onEnter: {
                 if viewMode == .snippets {
                     insertSelectedSnippet()

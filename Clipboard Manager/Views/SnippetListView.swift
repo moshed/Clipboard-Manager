@@ -240,6 +240,9 @@ struct SnippetListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .snippetDeleteSelected)) { _ in
             deleteSelected()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .snippetDeleteWithContents)) { _ in
+            deleteSelectedWithContents()
+        }
         .onAppear {
             // Expand all folders by default
             expandedFolderIDs = Set(allSnippets.filter { $0.isFolder }.map(\.id))
@@ -429,11 +432,17 @@ struct SnippetListView: View {
                     editorSessionID = UUID(); showEditor = true
                 }
                 Divider()
-                Button("Delete Folder", role: .destructive) {
-                    for child in children { modelContext.delete(child) }
+                Button("Delete Folder (Keep Snippets)") {
+                    for child in children { child.folderID = nil }
                     modelContext.delete(item)
                     expandedFolderIDs.remove(item.id)
                     NotificationCenter.default.post(name: .snippetHotkeysChanged, object: nil)
+                }
+                if !children.isEmpty {
+                    Button("Delete Folder and \(children.count) Snippet\(children.count == 1 ? "" : "s")…", role: .destructive) {
+                        selectedSnippetID = item.id
+                        deleteSelectedWithContents()
+                    }
                 }
             } else {
                 Button("Insert") { onInsert(item) }
@@ -516,11 +525,38 @@ struct SnippetListView: View {
                 selectedIDs = []
             }
         }
-        // Delete folder children too
+        // Deleting a folder must NOT take its snippets with it — that silently destroyed a
+        // whole folder of work once. The children move up to the root instead; use
+        // Cmd+Delete (deleteSelectedWithContents) to remove the contents on purpose.
         if item.isFolder {
-            for child in snippetsInFolder(item.id) { modelContext.delete(child) }
+            for child in snippetsInFolder(item.id) { child.folderID = nil }
             expandedFolderIDs.remove(item.id)
         }
+        modelContext.delete(item)
+        NotificationCenter.default.post(name: .snippetHotkeysChanged, object: nil)
+    }
+
+    /// Cmd+Delete: remove a folder AND everything inside it, after confirming.
+    private func deleteSelectedWithContents() {
+        guard let id = selectedSnippetID,
+              let item = allSnippets.first(where: { $0.id == id }) else { return }
+        guard item.isFolder else { deleteSelected(); return }
+
+        let children = snippetsInFolder(item.id)
+        guard !children.isEmpty else { deleteSelected(); return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete \"\(item.title)\" and its \(children.count) snippet\(children.count == 1 ? "" : "s")?"
+        alert.informativeText = "The snippets inside will be deleted too. This can't be undone."
+        alert.addButton(withTitle: "Delete All")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        selectedSnippetID = nil
+        selectedIDs = []
+        for child in children { modelContext.delete(child) }
+        expandedFolderIDs.remove(item.id)
         modelContext.delete(item)
         NotificationCenter.default.post(name: .snippetHotkeysChanged, object: nil)
     }
