@@ -340,6 +340,8 @@ struct ClipboardListView: View {
 
     /// Columns in the image grid, used for both layout and up/down arrow navigation.
     private static let gridColumnCount = 3
+    private static let gridSpacing: CGFloat = 10
+    private static let gridCornerRadius: CGFloat = 10
 
     @ViewBuilder
     private var clipboardContent: some View {
@@ -356,14 +358,15 @@ struct ClipboardListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.gridColumnCount),
-                    spacing: 6
+                    columns: Array(repeating: GridItem(.flexible(), spacing: Self.gridSpacing),
+                                   count: Self.gridColumnCount),
+                    spacing: Self.gridSpacing
                 ) {
                     ForEach(filteredEntries, id: \.id) { entry in
                         imageTile(for: entry).id(entry.id)
                     }
                 }
-                .padding(8)
+                .padding(Self.gridSpacing)
             }
             .onChange(of: selectedEntry?.id) { _, newID in
                 if let id = newID { proxy.scrollTo(id, anchor: nil) }
@@ -379,7 +382,7 @@ struct ClipboardListView: View {
             : nil
 
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
 
             if let data = entry.thumbnailData ?? entry.imageData, let img = NSImage(data: data) {
@@ -387,6 +390,8 @@ struct ClipboardListView: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
             } else {
                 Image(systemName: entry.contentType.systemImage)
                     .font(.system(size: 22))
@@ -404,10 +409,11 @@ struct ClipboardListView: View {
                     .padding(4)
             }
         }
-        .frame(height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Square tiles so every cell is the same size no matter the image's shape.
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Self.gridCornerRadius, style: .continuous)
                 .strokeBorder(isSelected ? Color(nsColor: .controlAccentColor) : Color.primary.opacity(0.12),
                               lineWidth: isSelected ? 2.5 : 1)
         )

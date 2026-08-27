@@ -169,8 +169,11 @@ class KeyCaptureView: NSView {
         }
 
         // Quick content-type filters (⌘I images, ⌘T text, ⌘L links, ⌘D files).
-        // Not intercepted while typing in a text field.
-        if !inTextField {
+        // These must work even while the search field holds focus — it usually does as
+        // soon as the panel opens, which made the shortcuts look dead. A real modifier
+        // (⌘/⌥/⌃) means the keystroke can't be someone typing, so it is safe to take.
+        let filterHasRealModifier = mods & UInt32(cmdKey | optionKey | controlKey) != 0
+        if !inTextField || filterHasRealModifier {
             let filters: [(KeyCombo?, String)] = [
                 (settings.filterImagesShortcut, "images"),
                 (settings.filterTextShortcut, "text"),
