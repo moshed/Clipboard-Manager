@@ -16,7 +16,8 @@ struct KeyEventHandlerView: NSViewRepresentable {
     var onLeftArrow: () -> Void = {}
     var onExpand: () -> Void
     var onDelete: () -> Void
-    var onDeleteWithContents: (() -> Void)? = nil
+    var onDeleteWithContents: (() -> Void)?
+    var onFilterType: ((String) -> Void)? = nil
     var onEnter: () -> Void
     var onShiftEnter: () -> Void
     var onTyping: (String) -> Void
@@ -41,6 +42,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         view.onExpand = onExpand
         view.onDelete = onDelete
         view.onDeleteWithContents = onDeleteWithContents
+        view.onFilterType = onFilterType
         view.onEnter = onEnter
         view.onShiftEnter = onShiftEnter
         view.onTyping = onTyping
@@ -66,6 +68,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
         nsView.onExpand = onExpand
         nsView.onDelete = onDelete
         nsView.onDeleteWithContents = onDeleteWithContents
+        nsView.onFilterType = onFilterType
         nsView.onEnter = onEnter
         nsView.onShiftEnter = onShiftEnter
         nsView.onTyping = onTyping
@@ -77,6 +80,7 @@ struct KeyEventHandlerView: NSViewRepresentable {
 }
 
 class KeyCaptureView: NSView {
+    var onFilterType: ((String) -> Void)?
     var onCopyPlain: (() -> Void)?
     var onCopyFormatted: (() -> Void)?
     var onPasteOrdered: (() -> Void)?
@@ -162,6 +166,23 @@ class KeyCaptureView: NSView {
                 return true
             }
             // Fall through so user-configured Cmd shortcuts (delete, copy, etc.) below can match
+        }
+
+        // Quick content-type filters (⌘I images, ⌘T text, ⌘L links, ⌘D files).
+        // Not intercepted while typing in a text field.
+        if !inTextField {
+            let filters: [(KeyCombo?, String)] = [
+                (settings.filterImagesShortcut, "images"),
+                (settings.filterTextShortcut, "text"),
+                (settings.filterLinksShortcut, "links"),
+                (settings.filterFilesShortcut, "files"),
+            ]
+            for (combo, kind) in filters {
+                if let combo, combo.matches(keyCode: keyCode, modifiers: mods) {
+                    onFilterType?(kind)
+                    return true
+                }
+            }
         }
 
         // Up/Down arrows always navigate clips; Shift extends selection

@@ -152,14 +152,15 @@ struct ClipboardListView: View {
                 if viewMode == .snippets {
                     moveSnippetSelection(by: 1)
                 } else if viewMode == .clipboard {
-                    moveSelection(by: 1)
+                    // In the grid, down moves a whole row rather than one tile.
+                    moveSelection(by: showImageGrid ? Self.gridColumnCount : 1)
                 }
             },
             onUpArrow: {
                 if viewMode == .snippets {
                     moveSnippetSelection(by: -1)
                 } else if viewMode == .clipboard {
-                    moveSelection(by: -1)
+                    moveSelection(by: showImageGrid ? -Self.gridColumnCount : -1)
                 }
             },
             onShiftDownArrow: {
@@ -171,11 +172,15 @@ struct ClipboardListView: View {
             onRightArrow: {
                 if viewMode == .snippets {
                     NotificationCenter.default.post(name: .snippetExpandFolder, object: nil)
+                } else if viewMode == .clipboard, showImageGrid {
+                    moveSelection(by: 1)
                 }
             },
             onLeftArrow: {
                 if viewMode == .snippets {
                     NotificationCenter.default.post(name: .snippetCollapseFolder, object: nil)
+                } else if viewMode == .clipboard, showImageGrid {
+                    moveSelection(by: -1)
                 }
             },
             onExpand: {
@@ -216,6 +221,10 @@ struct ClipboardListView: View {
                 if viewMode == .snippets {
                     NotificationCenter.default.post(name: .snippetDeleteWithContents, object: nil)
                 }
+            },
+            onFilterType: { kind in
+                guard viewMode == .clipboard else { return }
+                toggleTypeFilter(kind)
             },
             onEnter: {
                 if viewMode == .snippets {
@@ -320,8 +329,111 @@ struct ClipboardListView: View {
 
     // MARK: - Clipboard Content
 
+    /// True when the current filter shows images only — the cue to switch to the grid.
+    private var isImagesOnlyFilter: Bool {
+        typeFilter == [.image, .screenshot] || typeFilter == [.image] || typeFilter == [.screenshot]
+    }
+
+    private var showImageGrid: Bool {
+        settings.imageGridEnabled && isImagesOnlyFilter
+    }
+
+    /// Columns in the image grid, used for both layout and up/down arrow navigation.
+    private static let gridColumnCount = 3
+
+    @ViewBuilder
     private var clipboardContent: some View {
-        clipsList
+        if showImageGrid {
+            imageGrid
+        } else {
+            clipsList
+        }
+    }
+
+    // MARK: - Image Grid
+
+    private var imageGrid: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.gridColumnCount),
+                    spacing: 6
+                ) {
+                    ForEach(filteredEntries, id: \.id) { entry in
+                        imageTile(for: entry).id(entry.id)
+                    }
+                }
+                .padding(8)
+            }
+            .onChange(of: selectedEntry?.id) { _, newID in
+                if let id = newID { proxy.scrollTo(id, anchor: nil) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func imageTile(for entry: ClipboardEntry) -> some View {
+        let isSelected = selectedIDs.contains(entry.id)
+        let orderIndex: Int? = selectedIDs.count > 1
+            ? selectionOrder.firstIndex(of: entry.id).map { $0 + 1 }
+            : nil
+
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.05))
+
+            if let data = entry.thumbnailData ?? entry.imageData, let img = NSImage(data: data) {
+                Image(nsImage: img)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: entry.contentType.systemImage)
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if let orderIndex {
+                Text("\(orderIndex)")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 16)
+                    .padding(.vertical, 1)
+                    .background(Color(nsColor: .controlAccentColor), in: Capsule())
+                    .padding(4)
+            }
+        }
+        .frame(height: 96)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? Color(nsColor: .controlAccentColor) : Color.primary.opacity(0.12),
+                              lineWidth: isSelected ? 2.5 : 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            if settings.mouseAction == "doubleClick" {
+                handleTap(entry)
+                copyPlainMultiple([entry])
+                AppDelegate.shared?.pasteIntoPreviousApp()
+            }
+        }
+        .onTapGesture(count: 1) {
+            let flags = NSEvent.modifierFlags
+            if flags.contains(.command) {
+                handleTap(entry, command: true)
+            } else if flags.contains(.shift) {
+                handleTap(entry, shift: true)
+            } else {
+                handleTap(entry)
+                if settings.mouseAction == "singleClick" && selectedIDs.count == 1 {
+                    copyPlainMultiple([entry])
+                    AppDelegate.shared?.pasteIntoPreviousApp()
+                }
+            }
+        }
+        .contextMenu { entryContextMenu(for: entry) }
     }
 
     // MARK: - Clips List
@@ -615,6 +727,30 @@ struct ClipboardListView: View {
     private func panelFrameSize() -> CGSize {
         let panel = NSApp.windows.first(where: { $0 is ClipboardPanel })
         return panel?.frame.size ?? CGSize(width: 420, height: 520)
+    }
+
+    /// Toggle a quick content-type filter. Pressing the same shortcut again clears it,
+    /// so ⌘I shows only images and ⌘I again shows everything.
+    private func toggleTypeFilter(_ kind: String) {
+        let types: Set<ContentType>
+        switch kind {
+        case "images": types = [.image, .screenshot]
+        case "text":   types = [.text, .rtf]
+        case "links":  types = [.url]
+        case "files":  types = [.file]
+        default: return
+        }
+        if typeFilter == types {
+            typeFilter = []          // same shortcut again -> show everything
+        } else {
+            typeFilter = types
+        }
+        // Keep the selection valid for the new list.
+        let entries = filteredEntries
+        selectedEntry = entries.first
+        selectedIDs = Set([entries.first?.id].compactMap { $0 })
+        selectionOrder = [entries.first?.id].compactMap { $0 }
+        popoverEntry = nil
     }
 
     // MARK: - Selection Helpers

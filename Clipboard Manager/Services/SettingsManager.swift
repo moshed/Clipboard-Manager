@@ -41,6 +41,11 @@ struct KeyCombo: Codable, Equatable {
     /// Save clipboard images into the front Finder window (default ⌘⌥⌃S).
     static let defaultSaveToFinder = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | optionKey | controlKey))
     static let defaultSaveImage = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey))
+    // Quick content-type filters. Each toggles its own filter on/off.
+    static let defaultFilterImages = KeyCombo(keyCode: UInt32(kVK_ANSI_I), modifiers: UInt32(cmdKey))
+    static let defaultFilterText   = KeyCombo(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey))
+    static let defaultFilterLinks  = KeyCombo(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey))
+    static let defaultFilterFiles  = KeyCombo(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey))
     static let defaultExpand: KeyCombo? = nil
     static let none = KeyCombo(keyCode: UInt32.max, modifiers: UInt32.max)
 
@@ -146,6 +151,24 @@ class SettingsManager: ObservableObject {
 
     @Published var excelCopyAsText: Bool {
         didSet { UserDefaults.standard.set(excelCopyAsText, forKey: "excelCopyAsText") }
+    }
+
+    @Published var filterImagesShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(filterImagesShortcut, forKey: "filterImagesShortcut") }
+    }
+    @Published var filterTextShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(filterTextShortcut, forKey: "filterTextShortcut") }
+    }
+    @Published var filterLinksShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(filterLinksShortcut, forKey: "filterLinksShortcut") }
+    }
+    @Published var filterFilesShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(filterFilesShortcut, forKey: "filterFilesShortcut") }
+    }
+
+    /// Show a thumbnail grid instead of the list while the images-only filter is on.
+    @Published var imageGridEnabled: Bool {
+        didSet { UserDefaults.standard.set(imageGridEnabled, forKey: "imageGridEnabled") }
     }
 
     /// Mirror clipboard images/files into a real folder so file pickers can reach them.
@@ -310,6 +333,11 @@ class SettingsManager: ObservableObject {
         self.saveToFinderShortcut = SettingsManager.loadKeyCombo(forKey: "saveToFinderShortcut") ?? .defaultSaveToFinder
         self.clipboardFolderEnabled = UserDefaults.standard.object(forKey: "clipboardFolderEnabled") as? Bool ?? true
         self.clipboardFolderPath = UserDefaults.standard.string(forKey: "clipboardFolderPath")
+        self.imageGridEnabled = UserDefaults.standard.object(forKey: "imageGridEnabled") as? Bool ?? true
+        self.filterImagesShortcut = SettingsManager.loadKeyCombo(forKey: "filterImagesShortcut") ?? .defaultFilterImages
+        self.filterTextShortcut = SettingsManager.loadKeyCombo(forKey: "filterTextShortcut") ?? .defaultFilterText
+        self.filterLinksShortcut = SettingsManager.loadKeyCombo(forKey: "filterLinksShortcut") ?? .defaultFilterLinks
+        self.filterFilesShortcut = SettingsManager.loadKeyCombo(forKey: "filterFilesShortcut") ?? .defaultFilterFiles
         self.mouseAction = UserDefaults.standard.string(forKey: "mouseAction") ?? "singleClick"
         self.toggleShortcut = SettingsManager.loadKeyCombo(forKey: "toggleShortcut") ?? .defaultToggle
         self.copyPlainShortcut = SettingsManager.loadKeyCombo(forKey: "copyPlainShortcut") ?? .defaultCopyPlain

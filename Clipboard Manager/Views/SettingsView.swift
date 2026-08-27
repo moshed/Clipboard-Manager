@@ -154,6 +154,13 @@ struct GeneralSettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
+                Toggle("Image Grid", isOn: $settings.imageGridEnabled)
+                Text("When the filter shows only images, lay them out as a thumbnail grid instead of a list.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
                 Toggle("Clipboard Folder", isOn: $settings.clipboardFolderEnabled)
                 Text("Keeps copied images and files as real files in \(ClipboardFolder.url.path), so upload dialogs can pick them straight from the clipboard. Text is never written. Keeps the \(ClipboardFolder.keepCount) newest.")
                     .font(.system(size: 11))
@@ -349,6 +356,17 @@ struct ShortcutsSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 OptionalShortcutRow(label: "Clean Excel Selection", keyCombo: $settings.excelCleanShortcut, requireModifier: true)
                 Text("In Excel, copies the current selection and strips non-contiguous row/column gaps.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Filter: Images", keyCombo: $settings.filterImagesShortcut, requireModifier: true)
+                OptionalShortcutRow(label: "Filter: Text", keyCombo: $settings.filterTextShortcut, requireModifier: true)
+                OptionalShortcutRow(label: "Filter: Links", keyCombo: $settings.filterLinksShortcut, requireModifier: true)
+                OptionalShortcutRow(label: "Filter: Files", keyCombo: $settings.filterFilesShortcut, requireModifier: true)
+                Text("Shows only that kind of clip. Press the same shortcut again to clear the filter.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
@@ -838,6 +856,7 @@ struct BackupData: Codable {
         var snippetPreviewLines: Int?
         var multiPasteSeparator: String?
         var multiPasteCustomSeparator: String?
+        var imageGridEnabled: Bool?
         var multiPasteAltSeparator: String?
         var multiPasteAltCustomSeparator: String?
         var excelCleanup: Bool?
@@ -853,6 +872,10 @@ struct BackupData: Codable {
         var tabBackwardShortcut: KeyCombo?
         var excelCleanShortcut: KeyCombo?
         var saveToFinderShortcut: KeyCombo?
+        var filterImagesShortcut: KeyCombo?
+        var filterTextShortcut: KeyCombo?
+        var filterLinksShortcut: KeyCombo?
+        var filterFilesShortcut: KeyCombo?
         var saveImageShortcut: KeyCombo?
         var imageSaveFolderPath: String?
     }
@@ -948,6 +971,7 @@ struct SnippetBackupView: View {
             snippetPreviewLines: sm.snippetPreviewLines,
             multiPasteSeparator: sm.multiPasteSeparator,
             multiPasteCustomSeparator: sm.multiPasteCustomSeparator,
+            imageGridEnabled: sm.imageGridEnabled,
             multiPasteAltSeparator: sm.multiPasteAltSeparator,
             multiPasteAltCustomSeparator: sm.multiPasteAltCustomSeparator,
             excelCleanup: sm.excelCleanup,
@@ -963,6 +987,10 @@ struct SnippetBackupView: View {
             tabBackwardShortcut: sm.tabBackwardShortcut,
             excelCleanShortcut: sm.excelCleanShortcut,
             saveToFinderShortcut: sm.saveToFinderShortcut,
+            filterImagesShortcut: sm.filterImagesShortcut,
+            filterTextShortcut: sm.filterTextShortcut,
+            filterLinksShortcut: sm.filterLinksShortcut,
+            filterFilesShortcut: sm.filterFilesShortcut,
             saveImageShortcut: sm.saveImageShortcut,
             imageSaveFolderPath: sm.imageSaveFolderPath
         )
@@ -1019,6 +1047,7 @@ struct SnippetBackupView: View {
                 if let v = s.snippetPreviewLines { sm.snippetPreviewLines = v }
                 if let v = s.multiPasteSeparator { sm.multiPasteSeparator = v }
                 if let v = s.multiPasteCustomSeparator { sm.multiPasteCustomSeparator = v }
+                if let v = s.imageGridEnabled { sm.imageGridEnabled = v }
                 if let v = s.multiPasteAltSeparator { sm.multiPasteAltSeparator = v }
                 if let v = s.multiPasteAltCustomSeparator { sm.multiPasteAltCustomSeparator = v }
                 if let v = s.excelCleanup { sm.excelCleanup = v }
@@ -1034,6 +1063,10 @@ struct SnippetBackupView: View {
                 if let v = s.tabBackwardShortcut { sm.tabBackwardShortcut = v }
                 if let v = s.excelCleanShortcut { sm.excelCleanShortcut = v }
                 if let v = s.saveToFinderShortcut { sm.saveToFinderShortcut = v }
+                if let v = s.filterImagesShortcut { sm.filterImagesShortcut = v }
+                if let v = s.filterTextShortcut { sm.filterTextShortcut = v }
+                if let v = s.filterLinksShortcut { sm.filterLinksShortcut = v }
+                if let v = s.filterFilesShortcut { sm.filterFilesShortcut = v }
                 if let v = s.saveImageShortcut { sm.saveImageShortcut = v }
                 if let v = s.imageSaveFolderPath { sm.imageSaveFolderPath = v }
             }
