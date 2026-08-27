@@ -863,7 +863,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard type == .image || type == .screenshot else { continue }
             guard let data = entry.imageData ?? ClipboardImageStore.fullData(for: entry.id, context: context) else { continue }
             let label = type == .screenshot ? "Screenshot" : (entry.sourceAppName ?? "Image")
-            if ClipboardFolder.saveImage(data, label: label) != nil { written += 1 }
+            if ClipboardFolder.saveImage(data, label: label, date: entry.timestamp) != nil { written += 1 }
         }
         NSLog("[ClipboardManager] Clipboard folder seeded with %d images", written)
     }

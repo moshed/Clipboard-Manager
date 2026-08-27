@@ -25,11 +25,11 @@ enum ClipboardFolder {
 
     /// Save PNG image bytes into the folder. `label` becomes part of the file name.
     @discardableResult
-    static func saveImage(_ data: Data, label: String? = nil) -> URL? {
+    static func saveImage(_ data: Data, label: String? = nil, date: Date = Date()) -> URL? {
         guard SettingsManager.shared.clipboardFolderEnabled else { return nil }
         let dir = ensureFolder()
         let name = sanitize(label) ?? "Image"
-        guard let target = uniqueURL(in: dir, base: name, ext: "png") else { return nil }
+        guard let target = uniqueURL(in: dir, base: name, ext: "png", date: date) else { return nil }
         guard (try? data.write(to: target)) != nil else { return nil }
         prune()
         return target
@@ -67,10 +67,12 @@ enum ClipboardFolder {
         return String(cleaned.prefix(40))
     }
 
-    private static func uniqueURL(in dir: URL, base: String, ext: String) -> URL? {
+    /// Name files "<date> <time> <source>.<ext>" — timestamp FIRST so a plain
+    /// sort-by-name in Finder is also chronological order.
+    private static func uniqueURL(in dir: URL, base: String, ext: String, date: Date = Date()) -> URL? {
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let prefix = "\(base) \(stamp.string(from: Date()))"
+        let prefix = "\(stamp.string(from: date)) \(base)"
         let suffix = ext.isEmpty ? "" : ".\(ext)"
         var candidate = dir.appendingPathComponent(prefix + suffix)
         var n = 2
