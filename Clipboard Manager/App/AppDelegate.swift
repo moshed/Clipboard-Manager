@@ -793,7 +793,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        let folder = frontFinderFolder() ?? SettingsManager.shared.imageSaveFolderURL
+        // Finder frontmost -> the folder you're looking at, and reveal the file.
+        // Anywhere else (an Open/Save dialog, an upload sheet) -> the Clipboard folder,
+        // and DON'T reveal it: activating Finder would dismiss the dialog you're in.
+        let finderIsFront = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID
+        let folder: URL
+        let shouldReveal: Bool
+        if finderIsFront, let front = frontFinderFolder() {
+            folder = front
+            shouldReveal = true
+        } else {
+            folder = ClipboardFolder.ensureFolder()
+            shouldReveal = false
+        }
 
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
@@ -806,7 +818,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         do {
             try imageData.write(to: url)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            if shouldReveal { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         } catch {
             NSLog("[ClipboardManager] Save to Finder failed: %@", error.localizedDescription)
             NSSound.beep()
@@ -877,9 +889,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyManager?.setExcelCleanHotkeyActive(
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.excelBundleID
         )
-        hotkeyManager?.setSaveToFinderHotkeyActive(
-            NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID
-        )
 
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -892,8 +901,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Ignore activations of our own (non-activating) app so the state sticks while in Excel.
             if app.bundleIdentifier != Bundle.main.bundleIdentifier {
                 self?.hotkeyManager?.setExcelCleanHotkeyActive(app.bundleIdentifier == Self.excelBundleID)
-                // Same scoping for save-to-Finder: only live while Finder is frontmost.
-                self?.hotkeyManager?.setSaveToFinderHotkeyActive(app.bundleIdentifier == Self.finderBundleID)
                 self?.previousApp = app
             }
         }

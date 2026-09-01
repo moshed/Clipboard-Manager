@@ -95,14 +95,17 @@ class HotkeyManager {
         register(id: HotkeyManager.excelCleanID, combo: combo, action: action)
     }
 
-    /// Store the "save clipboard image into the front Finder window" action. Like the
-    /// Excel-clean hotkey it is only registered while Finder is frontmost, so the combo
-    /// stays free in every other app.
+    /// Store + register the "save the clipboard image to a folder" action.
+    ///
+    /// This one is registered GLOBALLY, unlike the Excel-clean hotkey. An open/save panel
+    /// belongs to whichever app opened it — not Finder — so scoping this to Finder meant it
+    /// was not even registered in the file dialogs where it is most useful.
     func setupSaveToFinderHotkey(action: @escaping () -> Void) {
         saveToFinderAction = action
+        saveToFinderActive = true
+        applySaveToFinderRegistration()
         settings.onSaveToFinderShortcutChanged = { [weak self] in
-            guard let self, self.saveToFinderActive else { return }
-            self.applySaveToFinderRegistration()
+            self?.applySaveToFinderRegistration()
         }
     }
 
