@@ -116,6 +116,14 @@ struct ClipboardListView: View {
             appFilter = []
             typeFilter = []
         }
+        // Whenever the visible list changes, put the selection back on the first row.
+        // Without this the selection stays on an entry from the OLD list — so after
+        // clearing a search, that entry sits far down the full list and the next Down
+        // arrow jumps to wherever it happens to be instead of moving from the top.
+        .onChange(of: searchText) { _, _ in selectFirstVisible() }
+        .onChange(of: dateFilter) { _, _ in selectFirstVisible() }
+        .onChange(of: appFilter) { _, _ in selectFirstVisible() }
+        .onChange(of: typeFilter) { _, _ in selectFirstVisible() }
         .background(KeyEventHandlerView(
             onCopyPlain: {
                 if viewMode == .snippets {
@@ -777,6 +785,16 @@ struct ClipboardListView: View {
     private func panelFrameSize() -> CGSize {
         let panel = NSApp.windows.first(where: { $0 is ClipboardPanel })
         return panel?.frame.size ?? CGSize(width: 420, height: 520)
+    }
+
+    /// Move the selection to the top of whatever is currently visible.
+    private func selectFirstVisible() {
+        guard viewMode == .clipboard else { return }
+        let first = filteredEntries.first
+        selectedEntry = first
+        selectedIDs = Set([first?.id].compactMap { $0 })
+        selectionOrder = [first?.id].compactMap { $0 }
+        popoverEntry = nil
     }
 
     /// Toggle a quick content-type filter. Pressing the same shortcut again clears it,
