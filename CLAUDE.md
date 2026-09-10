@@ -21,6 +21,35 @@ Also note: with Xcode 16, app code lives in `Clipboard Manager.debug.dylib`, **n
 - **Monitoring**: Timer polling NSPasteboard.general.changeCount every 0.5s
 - **Global Hotkey**: Carbon HotKey API (Cmd+Shift+V default, configurable), multi-hotkey for snippets
 
+## Global Hotkeys
+All are Carbon hotkeys in `HotkeyManager`, dispatched by `EventHotKeyID.id`. All are
+configurable in Settings → Shortcuts → Global.
+
+| ID | Action | Default | Scope |
+|---|---|---|---|
+| 1 | Toggle the panel | ⇧⌘V | Global |
+| 2 | Clean Excel Selection | ⌥⌘C | Only while Excel is frontmost (so ⌥⌘C passes through elsewhere) |
+| 3 | Save Clipboard Image to Finder | ⌃⌥⌘S | Global (file dialogs belong to the app that opened them) |
+| 4 | Copy File Path | ⌃⌥⌘C | Global |
+| 100+ | Per-snippet hotkeys | none | Global |
+
+To add one: a `KeyCombo.default…` + `@Published` optional combo + `on…Changed` callback in
+`SettingsManager`, a fixed ID + `setup…Hotkey` in `HotkeyManager`, the call in
+`AppDelegate.setupHotkey()`, and an `OptionalShortcutRow` plus the 3 backup lines in
+`SettingsView` (struct field, export, import). Check `~/.config/wm/config.json` (Window
+Manager) for a clash before you pick a default.
+
+## Where we left off (2026-09-10)
+- **Copy File Path (⌃⌥⌘C)** is built, installed to `/Applications`, and running.
+- `FrontDocument.paths()` passed a test with Preview, Excel, Finder and Terminal in front.
+- **Not yet done:** a real press of the hotkey. Synthetic key presses do not reliably fire
+  Carbon hotkeys, so Moshe must press it once to confirm.
+- **Not committed.** The change touches `FrontDocument.swift` (new), `AppDelegate.swift`,
+  `HotkeyManager.swift`, `SettingsManager.swift`, `SettingsView.swift`, `project.pbxproj`
+  and this file.
+- Ideas not built: a small on-screen "Copied" toast instead of only the "Tink" sound; a
+  URL fallback for browsers (Safari/Chrome have no file, so they beep now).
+
 ## Bundle ID
 `com.DNZ.clipboard-manager`
 
@@ -33,17 +62,21 @@ Clipboard Manager/
   Models/
     ClipboardEntry.swift         - SwiftData @Model, ContentType enum
     SavedSnippet.swift           - SwiftData @Model for saved text snippets
+    ClipboardImageBlob.swift     - SwiftData @Model for full-size image data + ClipboardImageStore lookup
   Services/
     ClipboardMonitor.swift       - Pasteboard polling, entry creation, OCR, pruning
-    HotkeyManager.swift          - Carbon global hotkey (multi-hotkey: toggle + per-snippet)
+    HotkeyManager.swift          - Carbon global hotkeys (see "Global Hotkeys" table)
     SettingsManager.swift        - UserDefaults preferences, KeyCombo
-    SnippetTokenResolver.swift   - Resolves {{clipboard}}, {{date}}, {{time}} etc. in snippets
+    SnippetTokenResolver.swift   - Resolves {{clipboard}}, {{date}}, {{time}} etc. in snippets; also LocationProvider for {{latlon}}
+    SnippetBackup.swift          - JSON copy of every snippet on each launch, keeps the newest 30
+    ClipboardFolder.swift        - Mirrors clipboard images/files into ~/Clipboard for file pickers, keeps 60
+    FrontDocument.swift          - File path of the front window's document (Copy File Path, ⌃⌥⌘C)
   Views/
     ClipboardPanel.swift         - NSPanel subclass (borderless, resizable, persists size)
     ClipboardListView.swift      - Main view: search, filters, list, settings overlay, Clipboard/Snippets toggle
     ClipboardRowView.swift       - Row: app icon + text + timestamp + thumbnail
     SnippetListView.swift        - Snippet list with drag-reorder, inline shortcut recording, icon picker, folders
-    SnippetEditorView.swift      - Snippet editor: rich text, format toolbar, SF Symbol picker, token buttons, hotkey
+    SnippetEditorView.swift      - Snippet editor: rich text, format toolbar, SF Symbol picker, token buttons, hotkey; also SFSymbolLoader
     ClipboardDetailView.swift    - Expanded view: zoomable images, RTF, plain text
     FilterBar.swift              - Date/app/type filter popover with FlowLayout
     SettingsView.swift           - TabView: General, Shortcuts, Excluded Apps
@@ -115,6 +148,20 @@ Clipboard Manager/
   re-add) then relaunch. `postCmdV()` now guards with `AXIsProcessTrusted()` and calls
   `promptForAccessibility()` (system prompt + deep link) instead of failing silently.
   Diagnose with: log `AXIsProcessTrusted()` + clipboard contents in `postCmdV`.
+
+### Copy File Path (⌃⌥⌘C, global)
+- Copies the path of the file open in the front window of ANY app. Settings → Shortcuts → Global.
+- Source: the focused (then main) window's Accessibility `AXDocument` attribute. It is a
+  `file://` URL string. Preview, Excel, TextEdit, Xcode and Terminal (current folder) all set it.
+- Finder has no document. It uses AppleScript instead: the selected items, else the front
+  window's folder, else the Desktop. Trailing `/` is removed to match Finder's "Copy as Pathname".
+- Office fallback: Excel/Word/PowerPoint can report zero windows to Accessibility, so they
+  also try `full name of active workbook/document/presentation` through AppleScript.
+- Every path is checked with `fileExists`. A window with no file on disk (browsers, Mail,
+  unsaved docs) beeps and leaves the clipboard alone. Success plays "Tink".
+- Test harness: compile `Services/FrontDocument.swift` with a `main.swift` that prints
+  `FrontDocument.paths()`, and switch apps with `osascript -e 'tell application id "…" to activate'`.
+  `NSRunningApplication.activate()` from a CLI tool only works once, then macOS ignores it.
 
 ### Self-Paste Detection
 - When copying from within the app, the ClipboardMonitor detects the pasteboard change

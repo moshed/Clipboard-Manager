@@ -12,11 +12,13 @@ class HotkeyManager {
     private var excelCleanAction: (() -> Void)?
     private var saveToFinderAction: (() -> Void)?
     private var saveToFinderActive = false
+    private var copyFilePathAction: (() -> Void)?
     private var excelCleanActive = false
 
     private static let toggleID: UInt32 = 1
     private static let excelCleanID: UInt32 = 2
     private static let saveToFinderID: UInt32 = 3
+    private static let copyFilePathID: UInt32 = 4
     private static let snippetIDBase: UInt32 = 100
 
     init(onToggle: @escaping () -> Void) {
@@ -121,6 +123,22 @@ class HotkeyManager {
               let action = saveToFinderAction,
               let combo = settings.saveToFinderShortcut else { return }
         register(id: HotkeyManager.saveToFinderID, combo: combo, action: action)
+    }
+
+    /// Store + register the global "copy the front window's file path" action.
+    func setupCopyFilePathHotkey(action: @escaping () -> Void) {
+        copyFilePathAction = action
+        applyCopyFilePathRegistration()
+        settings.onCopyFilePathShortcutChanged = { [weak self] in
+            self?.applyCopyFilePathRegistration()
+        }
+    }
+
+    private func applyCopyFilePathRegistration() {
+        unregister(id: HotkeyManager.copyFilePathID)
+        guard let action = copyFilePathAction,
+              let combo = settings.copyFilePathShortcut else { return }
+        register(id: HotkeyManager.copyFilePathID, combo: combo, action: action)
     }
 
     /// Unregister all snippet hotkeys (IDs in the snippet range)

@@ -40,6 +40,8 @@ struct KeyCombo: Codable, Equatable {
     static let defaultExcelClean = KeyCombo(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey))
     /// Save clipboard images into the front Finder window (default ⌘⌥⌃S).
     static let defaultSaveToFinder = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | optionKey | controlKey))
+    /// Copy the file path of the front window's document (default ⌘⌥⌃C).
+    static let defaultCopyFilePath = KeyCombo(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey | controlKey))
     static let defaultSaveImage = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey))
     // Quick content-type filters. Each toggles its own filter on/off.
     static let defaultFilterImages = KeyCombo(keyCode: UInt32(kVK_ANSI_I), modifiers: UInt32(cmdKey))
@@ -185,6 +187,11 @@ class SettingsManager: ObservableObject {
         didSet { saveOptionalKeyCombo(saveToFinderShortcut, forKey: "saveToFinderShortcut"); onSaveToFinderShortcutChanged?() }
     }
 
+    /// Global shortcut to copy the file path of the document in the frontmost app.
+    @Published var copyFilePathShortcut: KeyCombo? {
+        didSet { saveOptionalKeyCombo(copyFilePathShortcut, forKey: "copyFilePathShortcut"); onCopyFilePathShortcutChanged?() }
+    }
+
     @Published var excelCleanShortcut: KeyCombo? {
         didSet {
             saveOptionalKeyCombo(excelCleanShortcut, forKey: "excelCleanShortcut")
@@ -312,6 +319,7 @@ class SettingsManager: ObservableObject {
     var onToggleShortcutChanged: (() -> Void)?
     var onExcelCleanShortcutChanged: (() -> Void)?
     var onSaveToFinderShortcutChanged: (() -> Void)?
+    var onCopyFilePathShortcutChanged: (() -> Void)?
     var onDismissSettingChanged: (() -> Void)?
 
     private init() {
@@ -331,6 +339,7 @@ class SettingsManager: ObservableObject {
         self.excelCopyAsText = UserDefaults.standard.object(forKey: "excelCopyAsText") as? Bool ?? true
         self.excelCleanShortcut = SettingsManager.loadKeyCombo(forKey: "excelCleanShortcut") ?? .defaultExcelClean
         self.saveToFinderShortcut = SettingsManager.loadKeyCombo(forKey: "saveToFinderShortcut") ?? .defaultSaveToFinder
+        self.copyFilePathShortcut = SettingsManager.loadKeyCombo(forKey: "copyFilePathShortcut") ?? .defaultCopyFilePath
         self.clipboardFolderEnabled = UserDefaults.standard.object(forKey: "clipboardFolderEnabled") as? Bool ?? true
         self.clipboardFolderPath = UserDefaults.standard.string(forKey: "clipboardFolderPath")
         self.imageGridEnabled = UserDefaults.standard.object(forKey: "imageGridEnabled") as? Bool ?? true

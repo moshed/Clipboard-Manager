@@ -380,6 +380,14 @@ struct ShortcutsSettingsView: View {
                     .padding(.leading, 4)
             }
 
+            VStack(alignment: .leading, spacing: 2) {
+                OptionalShortcutRow(label: "Copy File Path", keyCombo: $settings.copyFilePathShortcut, requireModifier: true)
+                Text("Copies the path of the file open in the front window of any app. In Finder, copies the selected items. Beeps when the window has no file.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+
             Divider()
 
             // In-App section
@@ -872,6 +880,7 @@ struct BackupData: Codable {
         var tabBackwardShortcut: KeyCombo?
         var excelCleanShortcut: KeyCombo?
         var saveToFinderShortcut: KeyCombo?
+        var copyFilePathShortcut: KeyCombo?
         var filterImagesShortcut: KeyCombo?
         var filterTextShortcut: KeyCombo?
         var filterLinksShortcut: KeyCombo?
@@ -987,6 +996,7 @@ struct SnippetBackupView: View {
             tabBackwardShortcut: sm.tabBackwardShortcut,
             excelCleanShortcut: sm.excelCleanShortcut,
             saveToFinderShortcut: sm.saveToFinderShortcut,
+            copyFilePathShortcut: sm.copyFilePathShortcut,
             filterImagesShortcut: sm.filterImagesShortcut,
             filterTextShortcut: sm.filterTextShortcut,
             filterLinksShortcut: sm.filterLinksShortcut,
@@ -1063,6 +1073,7 @@ struct SnippetBackupView: View {
                 if let v = s.tabBackwardShortcut { sm.tabBackwardShortcut = v }
                 if let v = s.excelCleanShortcut { sm.excelCleanShortcut = v }
                 if let v = s.saveToFinderShortcut { sm.saveToFinderShortcut = v }
+                if let v = s.copyFilePathShortcut { sm.copyFilePathShortcut = v }
                 if let v = s.filterImagesShortcut { sm.filterImagesShortcut = v }
                 if let v = s.filterTextShortcut { sm.filterTextShortcut = v }
                 if let v = s.filterLinksShortcut { sm.filterLinksShortcut = v }

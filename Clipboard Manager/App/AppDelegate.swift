@@ -183,6 +183,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.saveClipboardImageToFinderWindow()
             }
         }
+        hotkeyManager?.setupCopyFilePathHotkey { [weak self] in
+            MainActor.assumeIsolated {
+                self?.copyFrontDocumentPath()
+            }
+        }
     }
 
     @objc func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -823,6 +828,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSLog("[ClipboardManager] Save to Finder failed: %@", error.localizedDescription)
             NSSound.beep()
         }
+    }
+
+    /// Copy the file path of the document in the frontmost app (in Finder: the selection).
+    /// Beeps when the front window has no file on disk.
+    private func copyFrontDocumentPath() {
+        guard let paths = FrontDocument.paths() else {
+            if AXIsProcessTrusted() { NSSound.beep() } else { promptForAccessibility() }
+            return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(paths, forType: .string)
+        NSSound(named: "Tink")?.play()
     }
 
     /// The folder shown by Finder's frontmost window, via AppleScript (needs Automation
