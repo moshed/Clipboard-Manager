@@ -27,6 +27,7 @@
 		A10017 /* SnippetTokenResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
 		A10099 /* SnippetBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10099; };
 		A10101 /* FrontDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101; };
+		A10090 /* BrowserPDF.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090; };
 		A10098 /* ClipboardFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10098; };
 		A10018 /* SnippetEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
 		A10019 /* SnippetListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
@@ -55,6 +56,7 @@
 		B10019 /* SnippetTokenResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetTokenResolver.swift; sourceTree = "<group>"; };
 		B10099 /* SnippetBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetBackup.swift; sourceTree = "<group>"; };
 		B10101 /* FrontDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontDocument.swift; sourceTree = "<group>"; };
+		B10090 /* BrowserPDF.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPDF.swift; sourceTree = "<group>"; };
 		B10098 /* ClipboardFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFolder.swift; sourceTree = "<group>"; };
 		B10020 /* SnippetEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorView.swift; sourceTree = "<group>"; };
 		B10021 /* SnippetListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetListView.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				B10019 /* SnippetTokenResolver.swift */,
 				B10099 /* SnippetBackup.swift */,
 				B10101 /* FrontDocument.swift */,
+				B10090 /* BrowserPDF.swift */,
 				B10098 /* ClipboardFolder.swift */,
 			);
 			path = Services;
@@ -251,6 +254,7 @@
 				A10017 /* SnippetTokenResolver.swift in Sources */,
 				A10099 /* SnippetBackup.swift in Sources */,
 				A10101 /* FrontDocument.swift in Sources */,
+				A10090 /* BrowserPDF.swift in Sources */,
 				A10098 /* ClipboardFolder.swift in Sources */,
 				A10018 /* SnippetEditorView.swift in Sources */,
 				A10019 /* SnippetListView.swift in Sources */,

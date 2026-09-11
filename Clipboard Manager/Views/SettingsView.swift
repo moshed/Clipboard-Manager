@@ -386,6 +386,13 @@ struct ShortcutsSettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
+                Toggle("In Safari and Chrome, copy the PDF itself", isOn: $settings.browserPDFCopiesFile)
+                    .padding(.leading, 4)
+                    .padding(.top, 2)
+                Text("With a PDF open in the front tab, the shortcut puts the actual PDF file on the clipboard, not the link. PDFs that need a sign-in can't be copied this way.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
             }
 
             Divider()
@@ -881,6 +888,7 @@ struct BackupData: Codable {
         var excelCleanShortcut: KeyCombo?
         var saveToFinderShortcut: KeyCombo?
         var copyFilePathShortcut: KeyCombo?
+        var browserPDFCopiesFile: Bool?
         var filterImagesShortcut: KeyCombo?
         var filterTextShortcut: KeyCombo?
         var filterLinksShortcut: KeyCombo?
@@ -997,6 +1005,7 @@ struct SnippetBackupView: View {
             excelCleanShortcut: sm.excelCleanShortcut,
             saveToFinderShortcut: sm.saveToFinderShortcut,
             copyFilePathShortcut: sm.copyFilePathShortcut,
+            browserPDFCopiesFile: sm.browserPDFCopiesFile,
             filterImagesShortcut: sm.filterImagesShortcut,
             filterTextShortcut: sm.filterTextShortcut,
             filterLinksShortcut: sm.filterLinksShortcut,
@@ -1074,6 +1083,7 @@ struct SnippetBackupView: View {
                 if let v = s.excelCleanShortcut { sm.excelCleanShortcut = v }
                 if let v = s.saveToFinderShortcut { sm.saveToFinderShortcut = v }
                 if let v = s.copyFilePathShortcut { sm.copyFilePathShortcut = v }
+                if let v = s.browserPDFCopiesFile { sm.browserPDFCopiesFile = v }
                 if let v = s.filterImagesShortcut { sm.filterImagesShortcut = v }
                 if let v = s.filterTextShortcut { sm.filterTextShortcut = v }
                 if let v = s.filterLinksShortcut { sm.filterLinksShortcut = v }

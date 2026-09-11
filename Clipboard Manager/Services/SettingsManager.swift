@@ -320,6 +320,11 @@ class SettingsManager: ObservableObject {
     var onExcelCleanShortcutChanged: (() -> Void)?
     var onSaveToFinderShortcutChanged: (() -> Void)?
     var onCopyFilePathShortcutChanged: (() -> Void)?
+
+    /// In a browser, Copy File Path copies the front tab's PDF as a file instead of beeping.
+    @Published var browserPDFCopiesFile: Bool {
+        didSet { UserDefaults.standard.set(browserPDFCopiesFile, forKey: "browserPDFCopiesFile") }
+    }
     var onDismissSettingChanged: (() -> Void)?
 
     private init() {
@@ -340,6 +345,7 @@ class SettingsManager: ObservableObject {
         self.excelCleanShortcut = SettingsManager.loadKeyCombo(forKey: "excelCleanShortcut") ?? .defaultExcelClean
         self.saveToFinderShortcut = SettingsManager.loadKeyCombo(forKey: "saveToFinderShortcut") ?? .defaultSaveToFinder
         self.copyFilePathShortcut = SettingsManager.loadKeyCombo(forKey: "copyFilePathShortcut") ?? .defaultCopyFilePath
+        self.browserPDFCopiesFile = UserDefaults.standard.object(forKey: "browserPDFCopiesFile") as? Bool ?? true
         self.clipboardFolderEnabled = UserDefaults.standard.object(forKey: "clipboardFolderEnabled") as? Bool ?? true
         self.clipboardFolderPath = UserDefaults.standard.string(forKey: "clipboardFolderPath")
         self.imageGridEnabled = UserDefaults.standard.object(forKey: "imageGridEnabled") as? Bool ?? true

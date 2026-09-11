@@ -76,6 +76,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(forName: .snippetHotkeysChanged, object: nil, queue: .main) { [weak self] _ in
             self?.setupSnippetHotkeys()
         }
+
+        #if DEBUG
+        // Test hook: post this distributed notification to run Copy File Path exactly as the
+        // hotkey would. Synthetic key presses do not reliably fire Carbon hotkeys.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.DNZ.clipboard-manager.debug.copyFilePath"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.copyFrontDocumentPath() }
+        }
+        #endif
     }
 
     private func setupModelContainer() {
@@ -833,6 +844,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Copy the file path of the document in the frontmost app (in Finder: the selection).
     /// Beeps when the front window has no file on disk.
     private func copyFrontDocumentPath() {
+        // In a browser, a PDF tab has no file on disk. Copy the PDF itself instead.
+        let frontID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if SettingsManager.shared.browserPDFCopiesFile, let frontID, BrowserPDF.isBrowser(frontID) {
+            copyBrowserPDF(bundleID: frontID)
+            return
+        }
         guard let paths = FrontDocument.paths() else {
             if AXIsProcessTrusted() { NSSound.beep() } else { promptForAccessibility() }
             return
@@ -841,6 +858,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pb.clearContents()
         pb.setString(paths, forType: .string)
         NSSound(named: "Tink")?.play()
+    }
+
+    /// Put the PDF from the browser's front tab on the clipboard as a real file, the same
+    /// as copying that file in Finder. Beeps when the tab is not a PDF or needs a sign-in.
+    private func copyBrowserPDF(bundleID: String) {
+        BrowserPDF.fetchFrontPDF(bundleID: bundleID) { result in
+            switch result {
+            case .success(let fileURL):
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects([fileURL as NSURL])
+                NSSound(named: "Tink")?.play()
+                NSLog("[ClipboardManager] Copied browser PDF: %@", fileURL.path)
+            case .failure(let failure):
+                NSLog("[ClipboardManager] Browser PDF copy failed: %@", String(describing: failure))
+                NSSound.beep()
+            }
+        }
     }
 
     /// The folder shown by Finder's frontmost window, via AppleScript (needs Automation

@@ -30,7 +30,7 @@ configurable in Settings → Shortcuts → Global.
 | 1 | Toggle the panel | ⇧⌘V | Global |
 | 2 | Clean Excel Selection | ⌥⌘C | Only while Excel is frontmost (so ⌥⌘C passes through elsewhere) |
 | 3 | Save Clipboard Image to Finder | ⌃⌥⌘S | Global (file dialogs belong to the app that opened them) |
-| 4 | Copy File Path | ⌃⌥⌘C | Global |
+| 4 | Copy File Path | ⌃⌥⌘C (Moshe set ⇧⌘C) | Global. ⌃⌥⌘C clashes with an enabled BetterTouchTool trigger, which copies something else |
 | 100+ | Per-snippet hotkeys | none | Global |
 
 To add one: a `KeyCombo.default…` + `@Published` optional combo + `on…Changed` callback in
@@ -39,16 +39,13 @@ To add one: a `KeyCombo.default…` + `@Published` optional combo + `on…Change
 `SettingsView` (struct field, export, import). Check `~/.config/wm/config.json` (Window
 Manager) for a clash before you pick a default.
 
-## Where we left off (2026-09-10)
-- **Copy File Path (⌃⌥⌘C)** is built, installed to `/Applications`, and running.
-- `FrontDocument.paths()` passed a test with Preview, Excel, Finder and Terminal in front.
-- **Not yet done:** a real press of the hotkey. Synthetic key presses do not reliably fire
-  Carbon hotkeys, so Moshe must press it once to confirm.
-- **Not committed.** The change touches `FrontDocument.swift` (new), `AppDelegate.swift`,
-  `HotkeyManager.swift`, `SettingsManager.swift`, `SettingsView.swift`, `project.pbxproj`
-  and this file.
-- Ideas not built: a small on-screen "Copied" toast instead of only the "Tink" sound; a
-  URL fallback for browsers (Safari/Chrome have no file, so they beep now).
+## Where we left off (2026-09-11)
+- **Copy File Path** is committed (`575972d`). Moshe changed his shortcut to **⇧⌘C**.
+  The default ⌃⌥⌘C clashes with an enabled BetterTouchTool trigger (entity 403), so BTT
+  copied the wrong text. Our lookup was correct the whole time.
+- **Safari/Chrome PDF copy** is built, deployed and tested (see the section below).
+- Ideas not built: a small on-screen "Copied" toast instead of only the "Tink" sound; a URL
+  fallback for normal (non-PDF) browser pages, which still beep.
 
 ## Bundle ID
 `com.DNZ.clipboard-manager`
@@ -71,6 +68,7 @@ Clipboard Manager/
     SnippetBackup.swift          - JSON copy of every snippet on each launch, keeps the newest 30
     ClipboardFolder.swift        - Mirrors clipboard images/files into ~/Clipboard for file pickers, keeps 60
     FrontDocument.swift          - File path of the front window's document (Copy File Path, ⌃⌥⌘C)
+    BrowserPDF.swift             - Downloads the PDF in a browser's front tab as a file (Copy File Path in Safari/Chrome)
   Views/
     ClipboardPanel.swift         - NSPanel subclass (borderless, resizable, persists size)
     ClipboardListView.swift      - Main view: search, filters, list, settings overlay, Clipboard/Snippets toggle
@@ -301,3 +299,32 @@ Clipboard Manager/
   `paragraphSpacingBefore`, `minimum/maximumLineHeight`, `lineHeightMultiple` and the font for
   the original vs the converted string. Here they were byte-identical, which is what proved the
   gap came from the writer's list-per-item markup rather than from the paragraph styles.
+
+### Copy File Path in a browser: copy the PDF itself
+- A PDF open in Safari or Chrome has no file on disk. With the setting **"In Safari and Chrome,
+  copy the PDF itself"** on (default), Copy File Path puts the actual PDF file on the clipboard.
+- `BrowserPDF` reads the front tab URL with AppleScript (`URL of front document` in Safari,
+  `URL of active tab of front window` in Chromium). It downloads the bytes and accepts them
+  only if they start with `%PDF-`. It saves to
+  `~/Library/Application Support/ClipboardManager/Browser PDFs/` (keeps the newest 50, reuses an
+  identical earlier download). A `file://` PDF is used as-is, with no download.
+- The clipboard gets `writeObjects([fileURL as NSURL])`, which is exactly what a Finder ⌘C of
+  the file puts there. The monitor then records it as a file entry and mirrors it to ~/Clipboard.
+- **Limit:** the download does not carry the browser's login cookies. A PDF behind a sign-in
+  (SharePoint, webmail) downloads as an HTML login page. The `%PDF-` check rejects it and the
+  app beeps. It never copies the wrong thing.
+
+### Testing global-hotkey actions without a key press
+Synthetic key presses do not reliably fire Carbon hotkeys. DEBUG builds listen for a
+distributed notification that runs Copy File Path through the exact hotkey code path:
+
+```swift
+DistributedNotificationCenter.default().postNotificationName(
+    Notification.Name("com.DNZ.clipboard-manager.debug.copyFilePath"),
+    object: nil, userInfo: nil, deliverImmediately: true)
+```
+
+Make the target app frontmost first and CHECK it is frontmost before you post, because the
+action reads `NSWorkspace.frontmostApplication`. Verified 2026-09-11: Safari showing
+`https://pdfobject.com/pdf/sample.pdf` gave a clipboard with `public.file-url` +
+`NSFilenamesPboardType` pointing at an 18,810-byte file that starts with `%PDF-`.
